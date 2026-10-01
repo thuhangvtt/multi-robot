@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.vscode/
+REFACTORING_RESULTS.md
+scratch_detect_raw.py
