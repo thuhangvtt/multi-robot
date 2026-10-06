@@ -44,8 +44,8 @@ CV_COLOR_LOOKUP = [(165, 165, 110),
 FIDUCIAL_WIDTH_MM = 30 # TODO: Just a guess
 
 CV_SANDBOX_IMAGE_BUFFER_PERCENT = 0.1 # How much extra to scale the image by when cropping the sandbox
-CV_SANDBOX_HEIGHT = 1500 # mm
-CV_SANDBOX_WIDTH = 2000 # mm
+CV_SANDBOX_HEIGHT = 650 # mm
+CV_SANDBOX_WIDTH = 1000 # mm
 
 CAMERA_MATRIX = np.array([ \
     [2.00392583e+03, 0.00000000e+00, 9.38728310e+02], \

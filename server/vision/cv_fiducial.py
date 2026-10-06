@@ -21,6 +21,13 @@ from constants import debugPrint
 # =====================================================================
 _aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_50)
 _aruco_params = cv.aruco.DetectorParameters()
+_aruco_params.adaptiveThreshWinSizeMin = 3
+_aruco_params.adaptiveThreshWinSizeMax = 53
+_aruco_params.adaptiveThreshWinSizeStep = 4
+_aruco_params.minMarkerPerimeterRate = 0.02
+_aruco_params.maxMarkerPerimeterRate = 4.0
+_aruco_params.polygonalApproxAccuracyRate = 0.05
+_aruco_params.cornerRefinementMethod = cv.aruco.CORNER_REFINE_SUBPIX
 _aruco_detector = cv.aruco.ArucoDetector(_aruco_dict, _aruco_params)
 
 
