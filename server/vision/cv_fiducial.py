@@ -21,18 +21,13 @@ from constants import debugPrint
 # =====================================================================
 _aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_50)
 _aruco_params = cv.aruco.DetectorParameters()
-# Enable subpixel corner refinement to help detect small or blurry markers
-_aruco_params.cornerRefinementMethod = cv.aruco.CORNER_REFINE_SUBPIX
-# Optionally slightly reduce the adaptive threshold constant to help with lower contrast
-_aruco_params.adaptiveThreshConstant = 5.0
-# VERY IMPORTANT for close-up/large markers: increase adaptive window max size!
 _aruco_params.adaptiveThreshWinSizeMin = 3
-_aruco_params.adaptiveThreshWinSizeMax = 153
-_aruco_params.adaptiveThreshWinSizeStep = 20
-# Increase polygonal approximation accuracy (default is 0.03, lower is stricter, higher is looser for blurry corners)
+_aruco_params.adaptiveThreshWinSizeMax = 53
+_aruco_params.adaptiveThreshWinSizeStep = 4
+_aruco_params.minMarkerPerimeterRate = 0.02
+_aruco_params.maxMarkerPerimeterRate = 4.0
 _aruco_params.polygonalApproxAccuracyRate = 0.05
-# Error correction rate (default 0.6)
-_aruco_params.errorCorrectionRate = 0.8
+_aruco_params.cornerRefinementMethod = cv.aruco.CORNER_REFINE_SUBPIX
 _aruco_detector = cv.aruco.ArucoDetector(_aruco_dict, _aruco_params)
 
 

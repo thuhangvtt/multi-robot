@@ -101,9 +101,9 @@ class CVVisualizer:
             cx_s = int(pose[0] * scale)
             cy_s = int(pose[1] * scale)
             # Filled red dot
-            cv.circle(frame, (cx_s, cy_s), 6, (0, 0, 255), -1)
+            cv.circle(frame, (cx_s, cy_s), 1, (0, 0, 255), -1)
             # Darker border ring
-            cv.circle(frame, (cx_s, cy_s), 8, (0, 0, 180), 2)
+            cv.circle(frame, (cx_s, cy_s), 2, (0, 0, 180), 1)
             # Label
             cv.putText(frame, "C", (cx_s + 10, cy_s - 5),
                        cv.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1, cv.LINE_AA)
@@ -115,7 +115,7 @@ class CVVisualizer:
             cx_s = int(pose[0] * scale)
             cy_s = int(pose[1] * scale)
             # Filled red dot
-            cv.circle(frame, (cx_s, cy_s), 5, (0, 0, 255), -1)
+            cv.circle(frame, (cx_s, cy_s), 2, (0, 0, 255), -1)
             # Label
             cv.putText(frame, f"P{i}", (cx_s + 10, cy_s - 5),
                        cv.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1, cv.LINE_AA)
@@ -127,7 +127,7 @@ class CVVisualizer:
             cx_s = int(pose[0] * scale)
             cy_s = int(pose[1] * scale)
             # Filled red dot
-            cv.circle(frame, (cx_s, cy_s), 5, (0, 0, 255), -1)
+            cv.circle(frame, (cx_s, cy_s), 2, (0, 0, 255), -1)
             # Label — green text to distinguish from pallets
             cv.putText(frame, f"G{i}", (cx_s + 10, cy_s - 5),
                        cv.FONT_HERSHEY_SIMPLEX, 0.4, (0, 200, 0), 1, cv.LINE_AA)
@@ -142,7 +142,7 @@ class CVVisualizer:
             cy_s = int(cy * scale)
 
             # --- Red dot at ArUco center ---
-            cv.circle(frame, (cx_s, cy_s), 5, (0, 0, 255), -1)
+            cv.circle(frame, (cx_s, cy_s), 2, (0, 0, 255), -1)
 
             # --- Blue orientation arrow ---
             arrow_len = 60 * scale
