@@ -66,10 +66,16 @@ class CV:
             self._camera_running = False
             return
         print("[CV] Camera opened successfully.")
+        # while self._camera_running:
+        #     ret, frame = cap.read()
+        #     if ret:
+        #         self._cvImage = frame
         while self._camera_running:
             ret, frame = cap.read()
             if ret:
-                self._cvImage = frame
+                undistorted_frame = cv.undistort(frame, constants.CAMERA_MATRIX, constants.DISTORTION_COEFFICIENTS)
+                self._cvImage = undistorted_frame
+
         cap.release()
 
     def _cv_CaptureImage(self):

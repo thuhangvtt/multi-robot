@@ -78,6 +78,10 @@ class StaticImageCV:
             print("       Falling back to raw image as sandbox view.")
             self.latestSandboxImage = self._raw_image.copy()
         else:
+            missing = set(constants.CORNER_FIDUCIALS) - set(self.cv_fiducial.cv_fiducial_cornerMarkerDict.keys())
+            if missing:
+                raise RuntimeError(f"Missing sandbox corner markers! Missing: {missing}. Found: {list(self.cv_fiducial.cv_fiducial_cornerMarkerDict.keys())}")
+                
             self.latestSandboxImage = self.cv_fiducial.cv_fiducial_flattenSandboxImage(
                 self._raw_image
             )
@@ -94,8 +98,27 @@ class StaticImageCV:
         corner_poses = self.cv_fiducial.cv_fiducial_getCornerPositions()
         print(f"[Test] Found: {len(robot_ids)} robot(s)  {len(pallet_poses)} pallet(s)"
               f"  {len(goal_poses)} goal(s)  {len(corner_poses)} corner(s) (in warped view)")
+        
+        if corner_poses:
+            print("       --- Corners ---")
+            for i, pose in enumerate(corner_poses):
+                print(f"       Corner {i}: x={pose[0]:.1f}, y={pose[1]:.1f}")
+        
         if robot_ids:
-            print(f"       Robot IDs: {robot_ids}")
+            print("       --- Robots ---")
+            for i, (pose, r_id) in enumerate(zip(robot_poses, robot_ids)):
+                print(f"       Robot ID={r_id}: x={pose[0]:.1f}, y={pose[1]:.1f}, theta={pose[2]:.2f} rad")
+                
+        if pallet_poses:
+            print("       --- Pallets ---")
+            for i, pose in enumerate(pallet_poses):
+                print(f"       Pallet {i}: x={pose[0]:.1f}, y={pose[1]:.1f}, theta={pose[2]:.2f} rad")
+                
+        if goal_poses:
+            print("       --- Goals ---")
+            for i, pose in enumerate(goal_poses):
+                print(f"       Goal {i}: x={pose[0]:.1f}, y={pose[1]:.1f}, theta={pose[2]:.2f} rad")
+                
         return self
 
     # ------------------------------------------------------------------

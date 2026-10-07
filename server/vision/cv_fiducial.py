@@ -21,34 +21,21 @@ from constants import debugPrint
 # =====================================================================
 _aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_50)
 _aruco_params = cv.aruco.DetectorParameters()
+# Enable subpixel corner refinement to help detect small or blurry markers
+_aruco_params.cornerRefinementMethod = cv.aruco.CORNER_REFINE_SUBPIX
+# Optionally slightly reduce the adaptive threshold constant to help with lower contrast
+_aruco_params.adaptiveThreshConstant = 5.0
+# VERY IMPORTANT for close-up/large markers: increase adaptive window max size!
+_aruco_params.adaptiveThreshWinSizeMin = 3
+_aruco_params.adaptiveThreshWinSizeMax = 153
+_aruco_params.adaptiveThreshWinSizeStep = 20
+# Increase polygonal approximation accuracy (default is 0.03, lower is stricter, higher is looser for blurry corners)
+_aruco_params.polygonalApproxAccuracyRate = 0.05
+# Error correction rate (default 0.6)
+_aruco_params.errorCorrectionRate = 0.8
 _aruco_detector = cv.aruco.ArucoDetector(_aruco_dict, _aruco_params)
 
 
-def _estimate_pose_single_marker(marker_corner, marker_size, camera_matrix, dist_coeffs):
-    '''
-    Replacement for the removed cv.aruco.estimatePoseSingleMarkers().
-    Uses cv.solvePnP with 4 coplanar corner points.
-
-    Returns: (rvec, tvec) — both as flat 1D arrays.
-    '''
-    # 3D coordinates of marker corners in marker frame (Z=0 plane)
-    half = marker_size / 2.0
-    obj_points = np.array([
-        [-half,  half, 0],
-        [ half,  half, 0],
-        [ half, -half, 0],
-        [-half, -half, 0],
-    ], dtype=np.float64)
-
-    img_points = marker_corner.reshape((4, 2)).astype(np.float64)
-
-    success, rvec, tvec = cv.solvePnP(
-        obj_points, img_points, camera_matrix, dist_coeffs
-    )
-    if not success:
-        return None, None
-
-    return rvec.flatten(), tvec.flatten()
 
 
 class CV_Fiducial:
@@ -98,19 +85,7 @@ class CV_Fiducial:
                 centerX = int((topLeft[0] + bottomRight[0]) / 2.0)
                 centerY = int((topLeft[1] + bottomRight[1]) / 2.0)
 
-                rvec = None
-                tvec = None
-
-                # reserve the extra processing for the corner fiducials
-                if fiducial_id in constants.CORNER_FIDUCIALS:
-                    # estimate the pose of the marker
-                    rvec, tvec = _estimate_pose_single_marker(
-                        marker_corner,
-                        constants.FIDUCIAL_WIDTH_MM,
-                        constants.CAMERA_MATRIX,
-                        constants.DISTORTION_COEFFICIENTS)
-                
-                self.cv_fiducial_cornerMarkerDict[fiducial_id] = (centerX, centerY, topLeft, topRight, bottomRight, bottomLeft, rvec, tvec)
+                self.cv_fiducial_cornerMarkerDict[fiducial_id] = (centerX, centerY, topLeft, topRight, bottomRight, bottomLeft)
 
         else:
             return False
