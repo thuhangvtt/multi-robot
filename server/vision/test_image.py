@@ -41,9 +41,7 @@ from cv_fiducial import CV_Fiducial
 from cv_visualize import CVVisualizer
 
 
-# =====================================================================
 # Inline "static image" version of CV — no camera thread needed
-# =====================================================================
 class StaticImageCV:
     '''
     Mimics the CV class interface but uses a pre-loaded image instead
@@ -54,6 +52,7 @@ class StaticImageCV:
         self.cv_fiducial = CV_Fiducial()
         self.latestSandboxImage = None
         self._raw_image = None
+        self.sandbox_warped = False
 
     def load(self):
         '''Load image from disk and run sandbox detection.'''
@@ -81,6 +80,7 @@ class StaticImageCV:
             self.latestSandboxImage = self.cv_fiducial.cv_fiducial_flattenSandboxImage(
                 self._raw_image
             )
+            self.sandbox_warped = True
             print(f"[Test] Sandbox warped: {self.latestSandboxImage.shape[1]}x{self.latestSandboxImage.shape[0]}")
 
         # Phase 2: detect all markers (robots, pallets, goals) in warped image
@@ -98,9 +98,7 @@ class StaticImageCV:
             print(f"       Robot IDs: {robot_ids}")
         return self
 
-    # ------------------------------------------------------------------
     # CV interface methods expected by CVVisualizer
-    # ------------------------------------------------------------------
     def cv_getLatestSandboxImage(self):
         return self.latestSandboxImage
 
@@ -117,9 +115,7 @@ class StaticImageCV:
         return self.cv_fiducial.cv_fiducial_getCornerPositions()
 
 
-# =====================================================================
 # Visualize to image (no imshow — returns annotated frame)
-# =====================================================================
 def render_to_image(cv_obj: StaticImageCV) -> np.ndarray:
     '''
     Run the CVVisualizer on a StaticImageCV object and return the
@@ -130,6 +126,31 @@ def render_to_image(cv_obj: StaticImageCV) -> np.ndarray:
         raise RuntimeError("No sandbox image to render.")
 
     frame = sandbox_image.copy()
+
+    if not cv_obj.sandbox_warped:
+        cv.putText(
+            frame,
+            "WARP SKIPPED: need all 4 corner markers",
+            (10, 50),
+            cv.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 0, 255),
+            2,
+            cv.LINE_AA,
+        )
+        for fiducial_id, data in cv_obj.cv_fiducial.cv_fiducial_cornerMarkerDict.items():
+            center = (int(data[0]), int(data[1]))
+            cv.circle(frame, center, 8, (0, 0, 255), 2)
+            cv.putText(
+                frame,
+                f"ID {fiducial_id}",
+                (center[0] + 10, center[1] - 10),
+                cv.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 0, 255),
+                2,
+                cv.LINE_AA,
+            )
     
     # Không thu nhỏ ảnh khi lưu file tĩnh (dùng tỷ lệ 1:1)
     scale = 1.0
@@ -186,9 +207,7 @@ def render_to_image(cv_obj: StaticImageCV) -> np.ndarray:
     return frame
 
 
-# =====================================================================
 # Main
-# =====================================================================
 def main():
     import glob
     
@@ -217,7 +236,6 @@ def main():
         print("\n" + "="*50)
         filename = os.path.basename(img_path)
         
-        # Determine output filename: field_test_1.jpg -> field_test_result_1.jpg
         name, ext = os.path.splitext(filename)
         out_name = name.replace("field_test_", "field_test_result_")
         if out_name == name:  # fallback if replace didn't match exactly

@@ -45,17 +45,29 @@ FIDUCIAL_WIDTH_MM = 30 # TODO: Just a guess
 
 CV_SANDBOX_IMAGE_BUFFER_PERCENT = 0.1 # How much extra to scale the image by when cropping the sandbox
 CV_SANDBOX_HEIGHT = 650 # mm
-CV_SANDBOX_WIDTH = 1200 # mm
+CV_SANDBOX_WIDTH = 1000 # mm
+
+# Keep the last object pose briefly when ArUco misses a frame, preventing
+# one-frame camera/detection glitches from making the visualizer blink.
+CV_MARKER_HOLD_FRAMES = 8
 
 CAMERA_MATRIX = np.array([ \
-    [2.00392583e+03, 0.00000000e+00, 9.38728310e+02], \
-    [0.00000000e+00, 2.00770751e+03, 1.28744156e+03], \
+    [1.61385605e+03, 0.00000000e+00, 6.35322605e+02], \
+    [0.00000000e+00, 1.61656336e+03, 3.68157714e+02], \
     [0.00000000e+00, 0.00000000e+00, 1.00000000e+00], \
 ])
 
 DISTORTION_COEFFICIENTS = np.array([ \
-    [1.43934418e-01, -9.88706009e-01, -1.37645383e-03, 3.98252828e-04, 1.58358829e+00] \
+    [2.15255284e-01, -1.01672832e+00, -1.02937616e-03, 2.35515928e-04, 5.65913680e-01] \
 ])
+
+# Enable only after recalibrating the same Camo resolution/lens used at runtime.
+CV_USE_CAMERA_CALIBRATION = True
+
+# Body-coordinate offsets from each marker center to the object's physical center (mm).
+# Tuples are (forward, right) in the marker/object frame and rotate with theta.
+ROBOT_CENTER_OFFSETS_MM = {0: (0.0, 0.0), 3: (0.0, 0.0), 5: (0.0, 0.0)}
+PALLET_CENTER_OFFSETS_MM = {2: (0.0, 0.0), 6: (0.0, 0.0), 8: (0.0, 0.0), 12: (0.0, 0.0)}
 
 CV_PALLET_CENTER_OFFSET = 60 # mm or pixels
 CV_GOAL_CENTER_OFFSET = 50

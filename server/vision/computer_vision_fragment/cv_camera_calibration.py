@@ -19,7 +19,11 @@ CHECKERBOARD_CORNERS = (9,6)
 SQUARE_SIZE_MM = 25.0 
 
 # 3. Đường dẫn tới thư mục chứa ảnh
-IMAGE_FOLDER_PATH = "images_calibration/calibration*.jpg"
+IMAGE_FOLDER_PATHS = (
+    "images_calibration/calibration*.png",
+    "images_calibration/calibration*.jpg",
+    "images_calibration/calibration*.jpeg",
+)
 
 # 4. Giới hạn số ảnh (đặt 0 để chạy hết)
 MAX_IMAGES = 0
@@ -40,14 +44,27 @@ objp = objp * SQUARE_SIZE_MM
 objpoints = []
 imgpoints = []
 
-images = glob.glob(IMAGE_FOLDER_PATH)
+images = sorted({path for pattern in IMAGE_FOLDER_PATHS for path in glob.glob(pattern)})
 
 if len(images) == 0:
-    print(f"LỖI: Không tìm thấy ảnh nào trong đường dẫn: {IMAGE_FOLDER_PATH}")
+    print("LỖI: Không tìm thấy ảnh calibration trong thư mục images_calibration")
     exit()
 
 if MAX_IMAGES > 0:
     images = images[:MAX_IMAGES]
+
+image_sizes = {}
+for fname in images:
+    image = cv.imread(fname)
+    if image is not None:
+        image_sizes.setdefault((image.shape[1], image.shape[0]), []).append(fname)
+
+if len(image_sizes) > 1:
+    print("LỖI: Các ảnh calibration không cùng độ phân giải:")
+    for size, files in image_sizes.items():
+        print(f"  {size[0]}x{size[1]}: {len(files)} ảnh")
+    print("Hãy chụp lại tất cả ảnh từ cùng một stream Camo, không đổi lens/zoom/độ phân giải.")
+    exit()
 
 print(f"Xử lý {len(images)} bức ảnh, tìm bàn cờ {CHECKERBOARD_CORNERS[0]}x{CHECKERBOARD_CORNERS[1]} góc.\n")
 

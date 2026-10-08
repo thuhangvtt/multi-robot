@@ -58,6 +58,32 @@ def _estimate_pose_single_marker(marker_corner, marker_size, camera_matrix, dist
     return rvec.flatten(), tvec.flatten()
 
 
+def _marker_center_from_corners(corners):
+    '''Return the center using the PARROT reference implementation.'''
+    return (corners[0] + corners[2]) / 2.0
+
+
+def _projected_square_center(corners):
+    '''Return the true projected square center from its diagonal intersection.'''
+    first_start, first_end = corners[0], corners[2]
+    second_start, second_end = corners[1], corners[3]
+    first_direction = first_end - first_start
+    second_direction = second_end - second_start
+    denominator = (
+        first_direction[0] * second_direction[1]
+        - first_direction[1] * second_direction[0]
+    )
+    if abs(float(denominator)) < 1e-8:
+        return _marker_center_from_corners(corners)
+
+    delta = second_start - first_start
+    parameter = (
+        delta[0] * second_direction[1]
+        - delta[1] * second_direction[0]
+    ) / denominator
+    return first_start + parameter * first_direction
+
+
 class CV_Fiducial:
     def __init__(self):
         self.cv_fiducial_markerDict = {}
@@ -66,12 +92,52 @@ class CV_Fiducial:
         self.mm_per_pixel = None
         self.sandbox_height_mm = None
         self.sandbox_width_mm = None
+        self._last_robot_ids_logged = None
+        self._marker_missed_frames = {}
 
-    def cv_fiducial_setupSandbox(self, image_frame):
-        # Find the sandbox corner fiducials's pose
-        while(self._cv_fiducial_detectSandboxCorners(image_frame) == False):
-            print("No sandbox corners detected.")
-            time.sleep(1)
+    def _apply_center_offset(self, fiducial_id, center_x, center_y, orientation):
+        '''Apply a measured body-coordinate offset from marker center to object center.'''
+        if fiducial_id in constants.ROBOT_CENTER_OFFSETS_MM:
+            forward, right = constants.ROBOT_CENTER_OFFSETS_MM[fiducial_id]
+        elif fiducial_id in constants.PALLET_CENTER_OFFSETS_MM:
+            forward, right = constants.PALLET_CENTER_OFFSETS_MM[fiducial_id]
+        else:
+            return center_x, center_y
+
+        offset_x = forward * math.cos(orientation) + right * math.sin(orientation)
+        offset_y = -forward * math.sin(orientation) + right * math.cos(orientation)
+        return center_x + offset_x, center_y + offset_y
+
+    @staticmethod
+    def _warp_pixel_to_field_mm(pose):
+        '''Convert a warped-image pose to field coordinates in millimetres.'''
+        buffer_x = constants.CV_SANDBOX_WIDTH * constants.CV_SANDBOX_IMAGE_BUFFER_PERCENT / 2
+        buffer_y = constants.CV_SANDBOX_HEIGHT * constants.CV_SANDBOX_IMAGE_BUFFER_PERCENT / 2
+        return [pose[0] - buffer_x, pose[1] - buffer_y, pose[2]]
+
+    def cv_fiducial_setupSandbox(self, image_frame, frame_supplier=None):
+        # Find all sandbox corner fiducials using fresh frames when available.
+        last_missing = None
+        while True:
+            self.cv_fiducial_cornerMarkerDict.clear()
+            corners_ready = self._cv_fiducial_detectSandboxCorners(image_frame)
+            if corners_ready:
+                break
+
+            detected = sorted(self.cv_fiducial_cornerMarkerDict.keys())
+            missing = [
+                fiducial_id
+                for fiducial_id in constants.CORNER_FIDUCIALS
+                if fiducial_id not in self.cv_fiducial_cornerMarkerDict
+            ]
+            if missing != last_missing:
+                print(f"[CV] Detected corner IDs: {detected or 'none'}")
+                print(f"[CV] Missing corner IDs: {missing}")
+                last_missing = missing
+            print("Waiting for all sandbox corners...")
+            time.sleep(0.2)
+            if frame_supplier is not None:
+                image_frame = frame_supplier()
 
         sandboxImage = self.cv_fiducial_flattenSandboxImage(image_frame)
 
@@ -102,8 +168,9 @@ class CV_Fiducial:
                 bottomLeft = (int(bottomLeft[0]), int(bottomLeft[1]))
                 topLeft = (int(topLeft[0]), int(topLeft[1]))
 
-                centerX = int((topLeft[0] + bottomRight[0]) / 2.0)
-                centerY = int((topLeft[1] + bottomRight[1]) / 2.0)
+                marker_center = _projected_square_center(corners)
+                centerX = int(round(float(marker_center[0])))
+                centerY = int(round(float(marker_center[1])))
 
                 rvec = None
                 tvec = None
@@ -128,15 +195,48 @@ class CV_Fiducial:
             cv.imshow("Corner Pose", image_frame_annotated)
             cv.waitKey(0)
 
-        return True
+        return all(
+            fiducial_id in self.cv_fiducial_cornerMarkerDict
+            for fiducial_id in constants.CORNER_FIDUCIALS
+        )
         
 
     ''' 
     This function returns the fiducial locations in the image.
     '''
     def cv_fiducial_generatePalletLocations(self, sandbox_image):
-
         corner_list, fiducial_ids, _ = _aruco_detector.detectMarkers(sandbox_image)
+
+        detected_ids = [] if fiducial_ids is None else fiducial_ids.flatten()
+        detected_id_set = {int(fiducial_id) for fiducial_id in detected_ids}
+        tracked_ids = set(
+            constants.ROBOT_FIDUCIALS
+            + constants.PALLET_FIDUCIALS
+            + constants.GOAL_FIDUCIALS
+        )
+        for tracked_id in tracked_ids:
+            if tracked_id in detected_id_set:
+                self._marker_missed_frames[tracked_id] = 0
+            elif tracked_id in self.cv_fiducial_markerDict:
+                missed_frames = self._marker_missed_frames.get(tracked_id, 0) + 1
+                self._marker_missed_frames[tracked_id] = missed_frames
+                if missed_frames > constants.CV_MARKER_HOLD_FRAMES:
+                    self.cv_fiducial_markerDict.pop(tracked_id, None)
+
+        detected_robot_ids = sorted(
+            int(fiducial_id)
+            for fiducial_id in detected_ids
+            if int(fiducial_id) in constants.ROBOT_FIDUCIALS
+        )
+        if detected_robot_ids != self._last_robot_ids_logged:
+            missing_robot_ids = [
+                fiducial_id
+                for fiducial_id in constants.ROBOT_FIDUCIALS
+                if fiducial_id not in detected_robot_ids
+            ]
+            print(f"[CV] Detected robot IDs: {detected_robot_ids or 'none'}")
+            print(f"[CV] Missing robot IDs: {missing_robot_ids}")
+            self._last_robot_ids_logged = detected_robot_ids
 
         # debugPrint("Fiducial IDs detected in field: " + str(fiducial_ids))
 
@@ -153,8 +253,9 @@ class CV_Fiducial:
                 bottomLeft = (int(bottomLeft[0]), int(bottomLeft[1]))
                 topLeft = (int(topLeft[0]), int(topLeft[1]))
 
-                centerX = int((topLeft[0] + bottomRight[0]) / 2.0)
-                centerY = int((topLeft[1] + bottomRight[1]) / 2.0)
+                marker_center = _marker_center_from_corners(corners)
+                centerX = int(round(float(marker_center[0])))
+                centerY = int(round(float(marker_center[1])))
 
                 # Use the fiducial corners to determine the orientation
                 orientation = math.atan2(topLeft[1] - bottomLeft[1], topLeft[0] - bottomLeft[0])
@@ -170,6 +271,10 @@ class CV_Fiducial:
                 if fiducial_id in constants.GOAL_FIDUCIALS:
                     centerX = centerX - (constants.CV_GOAL_CENTER_OFFSET * math.cos(orientation))
                     centerY = centerY + (constants.CV_GOAL_CENTER_OFFSET * math.sin(orientation))
+
+                centerX, centerY = self._apply_center_offset(
+                    fiducial_id, centerX, centerY, orientation
+                )
                 
                 self.cv_fiducial_markerDict[fiducial_id] = (centerX, centerY, topLeft, topRight, bottomRight, bottomLeft, orientation)
 
@@ -235,6 +340,26 @@ class CV_Fiducial:
             self.cv_fiducial_cornerMarkerDict[bottom_left_id][0:2]], dtype = "float32")
 
         M = cv.getPerspectiveTransform(fiducial_corners, destination_corners)
+
+        # Transform the corners actually detected by ArUco. Do not draw the
+        # nominal destination corners directly: the displayed center must be
+        # derived from the detected marker geometry.
+        corner_ids = (top_left_id, top_right_id, bottom_right_id, bottom_left_id)
+        self.cv_fiducial_warpedCornerMarkerDict = {}
+        for fiducial_id in corner_ids:
+            source_marker = np.array(
+                self.cv_fiducial_cornerMarkerDict[fiducial_id][2:6],
+                dtype="float32",
+            ).reshape((-1, 1, 2))
+            warped_marker = cv.perspectiveTransform(source_marker, M).reshape((-1, 2))
+            warped_center = _projected_square_center(warped_marker)
+            self.cv_fiducial_warpedCornerMarkerDict[fiducial_id] = (
+                float(warped_center[0]),
+                float(warped_center[1]),
+                *warped_marker.tolist(),
+                None,
+            )
+
         sandbox_image = cv.warpPerspective(image_frame, M, (height + (buffer_pixels_height * 2), width + (buffer_pixels_width * 2)))
 
         return sandbox_image
@@ -244,8 +369,8 @@ class CV_Fiducial:
         cornerFiducialIDs = constants.CORNER_FIDUCIALS
         foundCornerPositions = []
         for fiducialID in cornerFiducialIDs:
-            if fiducialID in self.cv_fiducial_markerDict.keys():
-                pose = list(self.cv_fiducial_markerDict[fiducialID][0:2]) + [self.cv_fiducial_markerDict[fiducialID][6]]
+            if fiducialID in self.cv_fiducial_warpedCornerMarkerDict:
+                pose = list(self.cv_fiducial_warpedCornerMarkerDict[fiducialID][0:2]) + [None]
                 foundCornerPositions.append(pose)
         return foundCornerPositions
 
@@ -286,3 +411,15 @@ class CV_Fiducial:
                 foundRobotFiducialIds.append(fiducialID)
 
         return foundRobotFiducialPoses, foundRobotFiducialIds
+
+    def cv_fiducial_getRobotPositionsMM(self):
+        '''Return current robot poses as (x_mm, y_mm, theta) plus marker IDs.'''
+        positions, marker_ids = self.cv_fiducial_getRobotPositions()
+        return [self._warp_pixel_to_field_mm(pose) for pose in positions], marker_ids
+
+    def cv_fiducial_getPalletPositionsMM(self):
+        '''Return current pallet poses as (x_mm, y_mm, theta).'''
+        return [
+            self._warp_pixel_to_field_mm(pose)
+            for pose in self.cv_fiducial_getPalletPositions()
+        ]

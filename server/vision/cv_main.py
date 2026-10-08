@@ -85,8 +85,10 @@ class CV:
 
     def cv_InitComputerVision(self):
         '''Initialize the sandbox: detect corner markers and compute perspective transform.'''
+        frame = self._prepare_frame(self._cv_CaptureImage())
         self.latestSandboxImage = self.cv_fiducial.cv_fiducial_setupSandbox(
-            self._cv_CaptureImage()
+            frame,
+            frame_supplier=lambda: self._prepare_frame(self._cv_CaptureImage()),
         )
         print("[CV] Computer Vision Field Ready")
 
@@ -96,7 +98,7 @@ class CV:
 
     def cv_runLocalizer(self):
         '''Capture a frame, warp to sandbox view, and detect all ArUco markers.'''
-        self.latestImageRaw = self._cv_CaptureImage()
+        self.latestImageRaw = self._prepare_frame(self._cv_CaptureImage())
 
         if self.latestImageRaw is None:
             debugPrint("[CV] No image captured")
@@ -108,6 +110,17 @@ class CV:
 
         # Detect all entities (robots, pallets, goals, corners) in the warped sandbox image
         self.cv_fiducial.cv_fiducial_generatePalletLocations(self.latestSandboxImage)
+
+    def _prepare_frame(self, frame):
+        '''Apply camera calibration only when it was captured for this runtime setup.'''
+        if not constants.CV_USE_CAMERA_CALIBRATION:
+            return frame
+
+        return cv.undistort(
+            frame,
+            constants.CAMERA_MATRIX,
+            constants.DISTORTION_COEFFICIENTS,
+        )
 
     ##############################################
     #            Data Getters
@@ -121,9 +134,17 @@ class CV:
         '''Returns (poses, ids) where each pose is [x, y, orientation] in warped image coords.'''
         return self.cv_fiducial.cv_fiducial_getRobotPositions()
 
+    def cv_GetRobotPositionsMM(self):
+        '''Returns (poses, ids) where each pose is [x_mm, y_mm, orientation].'''
+        return self.cv_fiducial.cv_fiducial_getRobotPositionsMM()
+
     def cv_GetPalletPositions(self):
         '''Returns list of [x, y, orientation] for detected pallets.'''
         return self.cv_fiducial.cv_fiducial_getPalletPositions()
+
+    def cv_GetPalletPositionsMM(self):
+        '''Returns list of [x_mm, y_mm, orientation] for detected pallets.'''
+        return self.cv_fiducial.cv_fiducial_getPalletPositionsMM()
 
     def cv_GetGoalPositions(self):
         '''Returns list of [x, y, orientation] for detected goals.'''

@@ -18,9 +18,7 @@ from collections import deque
 import constants
 
 
-# =====================================================================
 # Trail Colors (BGR) — MUST be distinct from robot arrow color (Blue)
-# =====================================================================
 TRAIL_COLORS = [
     (0, 140, 255),    # Orange
     (200, 0, 200),    # Magenta
@@ -48,18 +46,11 @@ class CVVisualizer:
         self._trail_color_map = {}
         self._trail_color_index = 0
 
-    # =================================================================
     #  Public API
-    # =================================================================
+    
 
     def visualize(self, cv_obj, window_name="PARROT Visualizer"):
-        '''
-        Draw all detection overlays on the latest sandbox image and display.
 
-        Args:
-            cv_obj: A CV instance whose cv_runLocalizer() has already been called.
-            window_name: Title of the OpenCV window.
-        '''
         sandbox_image = cv_obj.cv_getLatestSandboxImage()
         if sandbox_image is None:
             return
@@ -90,9 +81,7 @@ class CVVisualizer:
         '''Clear all stored robot trails (e.g., after a replan).'''
         self.robot_trails.clear()
 
-    # =================================================================
     #  Drawing helpers
-    # =================================================================
 
     def _draw_corners(self, frame, cv_obj, scale):
         '''Draw red dots at detected sandbox corner markers.'''
