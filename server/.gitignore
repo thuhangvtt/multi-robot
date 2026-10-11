@@ -4,4 +4,8 @@ __pycache__/
 .venv/
 .vscode/
 REFACTORING_RESULTS.md
-scratch_detect_raw.py
+
+
+# Planner build & planning docs
+planner/build/
+planner/PLANNER_IMPLEMENTATION_PLAN.md
