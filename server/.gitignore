@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.vscode/
+REFACTORING_RESULTS.md
+
+
+# Planner build & planning docs
+planner/build/
+planner/PLANNER_IMPLEMENTATION_PLAN.md
