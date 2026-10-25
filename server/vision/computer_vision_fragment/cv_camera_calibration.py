@@ -4,42 +4,25 @@ import glob
 import os
 import sys
 
-# Fix encoding cho Windows
 sys.stdout.reconfigure(encoding='utf-8')
 
-# =====================================================================
-# [QUAN TRỌNG] CÁC THAM SỐ CẦN THAY ĐỔI TRƯỚC KHI CHẠY CODE
-# =====================================================================
+CHECKERBOARD_CORNERS = (9, 6)
+SQUARE_SIZE_MM = 25.0
 
-# 1. Kích thước góc bên trong của bàn cờ (Inner corners). 
-# Bàn cờ 1078 ô => (9, 6) góc giao nhau bên trong.
-CHECKERBOARD_CORNERS = (9,6) 
-
-# 2. Kích thước thực tế của 1 cạnh ô vuông (đơn vị: mm).
-SQUARE_SIZE_MM = 25.0 
-
-# 3. Đường dẫn tới thư mục chứa ảnh
 IMAGE_FOLDER_PATHS = (
     "images_calibration/calibration*.png",
     "images_calibration/calibration*.jpg",
     "images_calibration/calibration*.jpeg",
 )
 
-# 4. Giới hạn số ảnh (đặt 0 để chạy hết)
 MAX_IMAGES = 0
-
-# 5. Resize ảnh xuống max bao nhiêu pixel (cạnh dài nhất) để xử lý nhanh
 RESIZE_MAX = 99999
-
-# =====================================================================
-# BẮT ĐẦU QUÁ TRÌNH HIỆU CHUẨN
-# =====================================================================
 
 criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
 objp = np.zeros((CHECKERBOARD_CORNERS[0] * CHECKERBOARD_CORNERS[1], 3), np.float32)
 objp[:, :2] = np.mgrid[0:CHECKERBOARD_CORNERS[0], 0:CHECKERBOARD_CORNERS[1]].T.reshape(-1, 2)
-objp = objp * SQUARE_SIZE_MM 
+objp = objp * SQUARE_SIZE_MM
 
 objpoints = []
 imgpoints = []
@@ -76,46 +59,42 @@ for fname in images:
     if img is None:
         print(f"  [!] Không đọc được: {fname}")
         continue
-    
+
     basename = os.path.basename(fname)
     h_orig, w_orig = img.shape[:2]
-    
-    # Resize ảnh xuống để DETECT nhanh
+
     scale = 1.0
     if max(h_orig, w_orig) > RESIZE_MAX:
         scale = RESIZE_MAX / max(h_orig, w_orig)
         img_small = cv.resize(img, None, fx=scale, fy=scale, interpolation=cv.INTER_AREA)
     else:
         img_small = img
-    
+
     gray_small = cv.cvtColor(img_small, cv.COLOR_BGR2GRAY)
     gray_orig = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    img_size = (w_orig, h_orig)  # Lưu kích thước GỐC
-    
+    img_size = (w_orig, h_orig)
+
     print(f"  Đang xử lý {basename} ({w_orig}x{h_orig} -> {gray_small.shape[1]}x{gray_small.shape[0]})...", end=" ", flush=True)
-    
-    # Detect góc trên ảnh NHỎ (nhanh)
+
     found = False
     corners = None
-    
+
     try:
         found, corners = cv.findChessboardCornersSB(gray_small, CHECKERBOARD_CORNERS, None)
     except AttributeError:
         pass
-    
+
     if not found:
         flags = cv.CALIB_CB_ADAPTIVE_THRESH + cv.CALIB_CB_NORMALIZE_IMAGE + cv.CALIB_CB_FILTER_QUADS
         found, corners = cv.findChessboardCorners(gray_small, CHECKERBOARD_CORNERS, None, flags)
-    
+
     if not found:
         found, corners = cv.findChessboardCorners(gray_small, CHECKERBOARD_CORNERS, None)
-    
+
     if found:
-        # Scale tọa độ góc về kích thước ẢNH GỐC
         if scale != 1.0:
             corners = corners / scale
-        
-        # Tinh chỉnh sub-pixel trên ẢNH GỐC (chính xác nhất)
+
         corners2 = cv.cornerSubPix(gray_orig, corners, (11, 11), (-1, -1), criteria)
         objpoints.append(objp)
         imgpoints.append(corners2)
@@ -130,7 +109,6 @@ print(f"{'='*50}")
 
 if successful_images == 0:
     print("\nLỖI: Không có ảnh nào nhận diện được góc!")
-    print("GỢI Ý: In bàn cờ chuẩn trên giấy A4 (cần có viền trắng bao quanh)")
     exit()
 
 if successful_images < 3:

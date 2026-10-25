@@ -1,4 +1,4 @@
-.pio/build/esp32dev/src/testquaybanhxe.ino.cpp.o: testquaybanhxe.ino.cpp \
+.pio/build/esp32dev/src/main.cpp.o: main.cpp config.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/cores/esp32/Arduino.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/cores/esp32/esp_arduino_version.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/freertos/include/freertos/FreeRTOS.h \
@@ -133,5 +133,5 @@
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/esp_hw_support/include/soc/esp32/spiram.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/cores/esp32/io_pin_remap.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/cores/esp32/Arduino.h \
- config.h motor.h imu.h servo_control.h command.h robot_control.h \
- wifi_control.h
+ config_private.h motor.h servo_control.h imu.h robot_control.h \
+ wifi_control.h command.h

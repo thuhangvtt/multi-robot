@@ -134,7 +134,7 @@
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/esp_hw_support/include/soc/esp32/spiram.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/cores/esp32/io_pin_remap.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/cores/esp32/Arduino.h \
- imu.h motor.h robot_control.h servo_control.h \
+ config_private.h imu.h motor.h robot_control.h servo_control.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/libraries/WebServer/src/WebServer.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/libraries/WiFi/src/WiFi.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/cores/esp32/Print.h \

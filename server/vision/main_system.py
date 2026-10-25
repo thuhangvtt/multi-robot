@@ -1,85 +1,70 @@
-'''
-PARROT Robot Controller — Main System Entry Point (Vision Testing Mode)
-
-Runs the computer vision pipeline and displays detection results
-in a live visualizer window. Used for testing ArUco marker detection
-and sandbox calibration without the planner or controller.
-
-Usage:
-    cd server
-    python vision/main_system.py
-
-Controls:
-    q / ESC — Quit
-'''
-
 import sys
 import os
+import traceback
+import cv2 as cv
 
-# =====================================================================
-# Setup import paths so modules can use bare `import constants`,
-# `from cv_fiducial import CV_Fiducial`, etc.
-# =====================================================================
-# Lùi lại một cấp để BASE_DIR trỏ về thư mục 'server'
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(BASE_DIR, 'config'))
 sys.path.insert(0, os.path.join(BASE_DIR, 'vision'))
 
-import cv2 as cv
 from cv_main import CV
 from cv_visualize import CVVisualizer
 import constants
 
 
 def main():
+    """Chạy vòng lặp kiểm thử thị giác máy tính và hiển thị visualizer."""
     print("=" * 55)
     print("  PARROT Vision System — Detection Testing Mode")
     print("=" * 55)
 
-    # ------------------------------------------------------------------
-    # 1. Initialize modules
-    # ------------------------------------------------------------------
-    cv_system = CV()
-    visualizer = CVVisualizer()
+    try:
+        cv_system = CV()
+        visualizer = CVVisualizer()
 
-    # ------------------------------------------------------------------
-    # 2. Start camera capture thread
-    # ------------------------------------------------------------------
-    cv_system.start_camera(constants.WEBCAM_ID)
+        cv_system.start_camera(constants.WEBCAM_ID)
+    except Exception as e:
+        print(f"[Main] FATAL: Khởi tạo vision thất bại: {e}")
+        print(traceback.format_exc())
+        sys.exit(1)
 
-    # ------------------------------------------------------------------
-    # 3. Calibrate sandbox (detect 4 corner ArUco markers)
-    # ------------------------------------------------------------------
-    print("[Main] Initializing sandbox (looking for corner markers)...")
-    cv_system.cv_InitComputerVision()
+    try:
+        print("[Main] Đang khởi tạo sandbox (tìm corner markers)...")
+        cv_system.cv_InitComputerVision()
+    except Exception as e:
+        print(f"[Main] FATAL: cv_InitComputerVision thất bại: {e}")
+        print(traceback.format_exc())
+        cv_system.stop_camera()
+        sys.exit(1)
 
-    print("[Main] Starting detection loop. Press 'q' or ESC to quit.")
+    print("[Main] Bắt đầu vòng lặp nhận diện. Nhấn 'q' hoặc ESC để dừng.")
     print("-" * 55)
 
-    # ------------------------------------------------------------------
-    # 4. Main detection + visualization loop
-    # ------------------------------------------------------------------
     try:
         while True:
-            # Capture frame → warp → detect all markers
-            cv_system.cv_runLocalizer()
+            try:
+                cv_system.cv_runLocalizer()
+                visualizer.visualize(cv_system)
+            except Exception as e:
+                print(f"[Main] LỖI: Vòng lặp vision: {e}")
+                print(traceback.format_exc())
 
-            # Draw overlays and show
-            visualizer.visualize(cv_system)
-
-            # Handle quit key
             key = cv.waitKey(1) & 0xFF
-            if key == ord('q') or key == 27:  # 'q' or ESC
-                print("[Main] Quit requested.")
+            if key == ord('q') or key == 27:
+                print("[Main] Yêu cầu dừng.")
                 break
 
     except KeyboardInterrupt:
-        print("\n[Main] Interrupted by user (Ctrl+C).")
+        print("\n[Main] Bị ngắt bởi người dùng (Ctrl+C).")
 
     finally:
-        cv_system.stop_camera()
+        try:
+            cv_system.stop_camera()
+        except Exception as e:
+            print(f"[Main] WARNING: stop_camera thất bại: {e}")
+            print(traceback.format_exc())
         cv.destroyAllWindows()
-        print("[Main] System shut down cleanly.")
+        print("[Main] Hệ thống đã tắt sạch.")
 
 
 if __name__ == "__main__":

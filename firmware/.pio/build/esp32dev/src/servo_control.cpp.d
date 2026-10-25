@@ -134,6 +134,7 @@
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/esp_hw_support/include/soc/esp32/spiram.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/cores/esp32/io_pin_remap.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/cores/esp32/Arduino.h \
- config.h .pio/libdeps/esp32dev/ESP32Servo/src/ESP32Servo.h \
+ config.h config_private.h \
+ .pio/libdeps/esp32dev/ESP32Servo/src/ESP32Servo.h \
  .pio/libdeps/esp32dev/ESP32Servo/src/ESP32PWM.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/cores/esp32/esp32-hal-ledc.h

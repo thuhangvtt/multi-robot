@@ -1,7 +1,6 @@
 /**
  * @file search_node.cpp
  * @brief Triển khai constructor và destructor của Node A* 4D.
- *        Giữ nguyên 100% so với node.cc gốc.
  */
 
 #include "search_node.hpp"
@@ -20,6 +19,4 @@ Node::Node(int x, int y, double theta, double time,
 
 Node::~Node()
 {
-    // Con trỏ parent không bị xóa tại đây —
-    // việc giải phóng toàn bộ chuỗi node do allocated_nodes trong a_star() đảm nhiệm.
 }

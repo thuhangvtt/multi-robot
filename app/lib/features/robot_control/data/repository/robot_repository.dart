@@ -10,12 +10,12 @@ class RobotRepository {
   Uri _control(Map<String, String> parameters) => Uri.http(host, '/control', parameters);
 
   Future<void> sendCommand(Map<String, String> parameters) async {
-    final response = await http.get(_control(parameters)).timeout(const Duration(milliseconds: 700));
+      final response = await http.get(_control(parameters)).timeout(const Duration(milliseconds: 700));
     if (response.statusCode >= 400) throw Exception('HTTP ${response.statusCode}');
   }
 
   Future<Map<String, dynamic>> fetchStatus() async {
-    final response = await http.get(Uri.http(host, '/status')).timeout(const Duration(seconds: 2));
+      final response = await http.get(Uri.http(host, '/status')).timeout(const Duration(seconds: 2));
     if (response.statusCode >= 400) throw Exception('HTTP ${response.statusCode}');
     return jsonDecode(response.body) as Map<String, dynamic>;
   }

@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:developer' as dev;
+import 'dart:io';
 
 import '../data/repository/robot_repository.dart';
 
@@ -24,16 +26,16 @@ class RobotController {
   void removeListener(void Function() listener) => _listeners.remove(listener);
   void _notify() {
     for (final listener in List.of(_listeners)) {
-      listener();
+        listener();
     }
   }
 
   void setHost(String host) {
-    this.host = host.trim();
+      this.host = host.trim();
   }
 
   void initialize() {
-    _statusTimer = Timer.periodic(const Duration(seconds: 3), (_) => refreshStatus());
+      _statusTimer = Timer.periodic(const Duration(seconds: 3), (_) => refreshStatus());
   }
 
   Future<void> send(Map<String, String> parameters, {String? success}) {
@@ -45,7 +47,7 @@ class RobotController {
       } catch (error) {
         message = 'Lệnh thất bại: $error';
       }
-      _notify();
+        _notify();
     });
 
     _commandQueue = operation.catchError((_) {});
@@ -64,52 +66,55 @@ class RobotController {
   }
 
   void startDrive(int left, int right) {
-    _driveTimer?.cancel();
+      _driveTimer?.cancel();
 
-    void sendDrive() {
-      send({
-        'dtype': 'speed',
-        'left': '${left * speed}',
-        'right': '${right * speed}',
-      });
-    }
+      void sendDrive() {
+        send({
+          'dtype': 'speed',
+          'left': '${left * speed}',
+          'right': '${right * speed}',
+        });
+      }
 
-    sendDrive();
-    _driveTimer = Timer.periodic(const Duration(milliseconds: 300), (_) => sendDrive());
+      sendDrive();
+      _driveTimer = Timer.periodic(const Duration(milliseconds: 300), (_) => sendDrive());
   }
 
   void stopDrive() {
-    _driveTimer?.cancel();
-    _driveTimer = null;
-    send({'dtype': 'stop'}, success: 'Đã dừng robot');
+      _driveTimer?.cancel();
+      _driveTimer = null;
+      send({'dtype': 'stop'}, success: 'Đã dừng robot');
   }
 
   void updateSpeed(int value) {
-    speed = value;
-    _notify();
+      speed = value;
+      _notify();
   }
 
   void updateServoA(int value) {
-    servoA = value;
-    _notify();
+      servoA = value;
+      _notify();
     send({'dtype': 'servo', 'a': '$servoA', 'b': '$servoB'}, success: 'Đã cập nhật servo');
   }
 
   void updateServoB(int value) {
-    servoB = value;
-    _notify();
-    send({'dtype': 'servo', 'a': '$servoA', 'b': '$servoB'}, success: 'Đã cập nhật servo');
+      servoB = value;
+      _notify();
+      send({'dtype': 'servo', 'a': '$servoA', 'b': '$servoB'}, success: 'Đã cập nhật servo B');
+    } catch (e, stackTrace) {
+      dev.log('Lỗi updateServoB RobotController: $e\n$stackTrace', name: 'RobotController', error: e, stackTrace: stackTrace);
+    }
   }
 
   void setStraight(bool value) {
-    straight = value;
-    _notify();
-    send({'dtype': 'straight', 'enabled': value ? '1' : '0'});
+      straight = value;
+      _notify();
+      send({'dtype': 'straight', 'enabled': value ? '1' : '0'});
   }
 
   void dispose() {
-    _driveTimer?.cancel();
-    _statusTimer?.cancel();
-    _listeners.clear();
+      _driveTimer?.cancel();
+      _statusTimer?.cancel();
+      _listeners.clear();
   }
 }

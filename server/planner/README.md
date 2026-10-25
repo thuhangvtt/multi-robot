@@ -93,7 +93,7 @@ python3 test_planner.py
   ✓ PASS  Stress test RAM
   ✓ PASS  Validation đầu vào
 ==============================================================
-  ✅ Tất cả kiểm thử ĐẠT — Module sẵn sàng tích hợp!
+  Tất cả kiểm thử ĐẠT — Module sẵn sàng tích hợp!
 ==============================================================
 ```
 

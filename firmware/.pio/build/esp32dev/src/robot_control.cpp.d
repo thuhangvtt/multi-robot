@@ -134,4 +134,4 @@
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32/include/esp_hw_support/include/soc/esp32/spiram.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/cores/esp32/io_pin_remap.h \
  C:/Users/Admin/.platformio/packages/framework-arduinoespressif32/cores/esp32/Arduino.h \
- config.h imu.h motor.h
+ config.h config_private.h motor.h servo_control.h imu.h

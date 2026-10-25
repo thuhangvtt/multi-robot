@@ -1,42 +1,100 @@
+/**
+ * @file motor.cpp
+ * @brief Triển khai điều khiển động cơ DC DRV8833.
+ */
+
 #include "motor.h"
 #include "config.h"
+
 namespace {
-int16_t leftTarget = 0, rightTarget = 0, leftOutput = 0, rightOutput = 0;
-uint32_t lastUpdate = 0;
-int16_t approach(int16_t current, int16_t target) {
-  if (current < target) return min<int16_t>(current + PWM_RAMP_STEP, target);
-  if (current > target) return max<int16_t>(current - PWM_RAMP_STEP, target);
-  return current;
+int currentLeftSpeed = 0;
+int currentRightSpeed = 0;
+bool faultDetected = false;
+
+int convertToDcPwm(int val) {
+  if (val == 0) return 0;
+
+  if (val >= 40 && val <= 140) {
+    int delta = val - 90;
+    if (abs(delta) <= 1) return 0;
+
+    if (delta > 0) {
+      return map(delta, 2, 40, DC_MOTOR_MIN_PWM, DC_MOTOR_MAX_PWM);
+    } else {
+      return -map(-delta, 2, 40, DC_MOTOR_MIN_PWM, DC_MOTOR_MAX_PWM);
+    }
+  }
+
+  return constrain(val, -255, 255);
 }
-void writeMotor(uint8_t pinA, uint8_t pinB, int16_t value) {
-  value = constrain(value, -PWM_LIMIT, PWM_LIMIT);
-  analogWrite(pinA, value >= 0 ? value : 0);
-  analogWrite(pinB, value < 0 ? -value : 0);
+
+void driveHBridge(uint8_t pin1, uint8_t pin2, int pwm, bool inverted) {
+  if (inverted) pwm = -pwm;
+
+  if (pwm > 0) {
+    analogWrite(pin1, constrain(pwm, 0, 255));
+    analogWrite(pin2, 0);
+  } else if (pwm < 0) {
+    analogWrite(pin1, 0);
+    analogWrite(pin2, constrain(-pwm, 0, 255));
+  } else {
+    analogWrite(pin1, 0);
+    analogWrite(pin2, 0);
+  }
 }
-int16_t applyMotorDirection(int16_t value, bool inverted) {
-  return inverted ? -value : value;
 }
-}
+
 void motorInit() {
-  pinMode(MOTOR_ENABLE, OUTPUT);
-  digitalWrite(MOTOR_ENABLE, HIGH);
-  pinMode(MOTOR_LEFT_IN1, OUTPUT); pinMode(MOTOR_LEFT_IN2, OUTPUT);
-  pinMode(MOTOR_RIGHT_IN1, OUTPUT); pinMode(MOTOR_RIGHT_IN2, OUTPUT);
+  pinMode(DRV8833_EEP_PIN, OUTPUT);
+  digitalWrite(DRV8833_EEP_PIN, HIGH);
+
+  pinMode(DRV8833_FAULT_PIN, INPUT_PULLUP);
+
+  pinMode(MOTOR_LEFT_IN1, OUTPUT);
+  pinMode(MOTOR_LEFT_IN2, OUTPUT);
+  pinMode(MOTOR_RIGHT_IN1, OUTPUT);
+  pinMode(MOTOR_RIGHT_IN2, OUTPUT);
+
   motorStop();
 }
-void motorSetTarget(int16_t left, int16_t right) {
-  leftTarget = constrain(left, -PWM_LIMIT, PWM_LIMIT);
-  rightTarget = constrain(right, -PWM_LIMIT, PWM_LIMIT);
+
+void motorSetSpeeds(int leftSpeed, int rightSpeed) {
+  digitalWrite(DRV8833_EEP_PIN, HIGH);
+
+  int leftPwm = convertToDcPwm(leftSpeed);
+  int rightPwm = convertToDcPwm(rightSpeed);
+
+  currentLeftSpeed = leftSpeed;
+  currentRightSpeed = rightSpeed;
+
+  driveHBridge(MOTOR_LEFT_IN1, MOTOR_LEFT_IN2, leftPwm, MOTOR_LEFT_INVERTED);
+  driveHBridge(MOTOR_RIGHT_IN1, MOTOR_RIGHT_IN2, rightPwm, MOTOR_RIGHT_INVERTED);
 }
-void motorStop() { motorSetTarget(0, 0); }
+
+void motorStop() {
+  currentLeftSpeed = 0;
+  currentRightSpeed = 0;
+  analogWrite(MOTOR_LEFT_IN1, 0);
+  analogWrite(MOTOR_LEFT_IN2, 0);
+  analogWrite(MOTOR_RIGHT_IN1, 0);
+  analogWrite(MOTOR_RIGHT_IN2, 0);
+}
+
+int motorGetLeftSpeed() {
+  return currentLeftSpeed;
+}
+
+int motorGetRightSpeed() {
+  return currentRightSpeed;
+}
+
+bool drv8833IsFault() {
+  return digitalRead(DRV8833_FAULT_PIN) == LOW;
+}
+
 void motorTask() {
-  const uint32_t now = millis();
-  if (now - lastUpdate < CONTROL_PERIOD_MS) return;
-  lastUpdate = now;
-  leftOutput = approach(leftOutput, leftTarget);
-  rightOutput = approach(rightOutput, rightTarget);
-  writeMotor(MOTOR_LEFT_IN1, MOTOR_LEFT_IN2, applyMotorDirection(leftOutput, MOTOR_LEFT_INVERTED));
-  writeMotor(MOTOR_RIGHT_IN1, MOTOR_RIGHT_IN2, applyMotorDirection(rightOutput, MOTOR_RIGHT_INVERTED));
+  faultDetected = drv8833IsFault();
+  if (faultDetected) {
+    motorStop();
+  }
 }
-int16_t motorLeftOutput() { return leftOutput; }
-int16_t motorRightOutput() { return rightOutput; }

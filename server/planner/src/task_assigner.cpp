@@ -1,7 +1,6 @@
 /**
  * @file task_assigner.cpp
- * @brief Triển khai thuật toán gán Pallet -> Robot.
- *        Kế thừa 100% logic từ task_planner.cc gốc.
+ * @brief Gán nhiệm vụ Pallet cho Robot.
  */
 
 #include "task_assigner.hpp"
@@ -16,34 +15,41 @@ TaskAssigner::~TaskAssigner()
 {
 }
 
-// =============================================================================
-// Thuật toán đơn giản: gán FIFO — robot 0 lấy pallet đầu tiên chưa giao, v.v.
-// Giữ nguyên 100% so với assign_pallets_to_robots_simple() gốc.
-// =============================================================================
 std::vector<int> TaskAssigner::assign_pallets_to_robots_simple(
     std::vector<std::vector<double>> robot_poses,
     std::vector<std::vector<double>> pallet_and_goal_poses)
 {
     std::vector<int> task_assignments;
+    int n_robots = (int)robot_poses.size();
 
-    std::cout << "Dropped off pallets: ";
+    std::cout << "[TaskAssigner] Danh sách pallet đã hoàn thành: ";
     for (int i = 0; i < (int)this->dropped_off_pallets.size(); i++)
     {
         std::cout << this->dropped_off_pallets[i] << " ";
     }
     std::cout << std::endl;
 
-    for (int i = 0; i < this->num_robots; i++)
+    // Track pallets assigned in THIS planning round (separate from completed pallets)
+    std::vector<int> currently_assigned;
+
+    for (int i = 0; i < n_robots; i++)
     {
         bool task_assigned = false;
         for (int j = 0; j < (int)pallet_and_goal_poses.size(); j++)
         {
-            // Bỏ qua pallet đã giao
-            if (std::find(this->dropped_off_pallets.begin(),
-                          this->dropped_off_pallets.end(), j) == this->dropped_off_pallets.end())
+            // Skip pallets already completed (delivered)
+            bool already_done = std::find(this->dropped_off_pallets.begin(),
+                                          this->dropped_off_pallets.end(), j)
+                                != this->dropped_off_pallets.end();
+            // Skip pallets already assigned to another robot this round
+            bool already_assigned = std::find(currently_assigned.begin(),
+                                              currently_assigned.end(), j)
+                                   != currently_assigned.end();
+
+            if (!already_done && !already_assigned)
             {
                 task_assignments.push_back(j);
-                this->dropped_off_pallets.push_back(j);
+                currently_assigned.push_back(j);
                 task_assigned = true;
                 break;
             }
@@ -57,23 +63,19 @@ std::vector<int> TaskAssigner::assign_pallets_to_robots_simple(
     return task_assignments;
 }
 
-// =============================================================================
-// Thuật toán heuristic Euclidean: với mỗi pallet, tìm robot gần nhất chưa có việc.
-// Giữ nguyên 100% so với assign_pallets_to_robots_heuristic() gốc.
-// =============================================================================
 std::vector<int> TaskAssigner::assign_pallets_to_robots_heuristic(
     std::vector<std::vector<double>> robot_poses,
     std::vector<std::vector<double>> pallet_and_goal_poses)
 {
-    std::vector<int>  task_assignments(this->num_robots, -1);
-    std::vector<bool> robot_assigned(robot_poses.size(), false);
+    int n_robots = (int)robot_poses.size();
+    std::vector<int>  task_assignments(n_robots, -1);
+    std::vector<bool> robot_assigned(n_robots, false);
 
-    // Tính ma trận khoảng cách pallet -> robot
     std::vector<std::vector<double>> pallet_to_robot_distances;
     for (int i = 0; i < (int)pallet_and_goal_poses.size(); i++)
     {
         std::vector<double> distances;
-        for (int j = 0; j < (int)robot_poses.size(); j++)
+        for (int j = 0; j < n_robots; j++)
         {
             double dx = pallet_and_goal_poses[i][0] - robot_poses[j][0];
             double dy = pallet_and_goal_poses[i][1] - robot_poses[j][1];
@@ -82,10 +84,8 @@ std::vector<int> TaskAssigner::assign_pallets_to_robots_heuristic(
         pallet_to_robot_distances.push_back(distances);
     }
 
-    // Với mỗi pallet (theo thứ tự index), gán cho robot gần nhất chưa có việc
     for (int i = 0; i < (int)pallet_and_goal_poses.size(); i++)
     {
-        // Bỏ qua pallet đã giao
         if (std::find(this->dropped_off_pallets.begin(),
                       this->dropped_off_pallets.end(), i) != this->dropped_off_pallets.end())
         {
@@ -95,7 +95,7 @@ std::vector<int> TaskAssigner::assign_pallets_to_robots_heuristic(
         int    closest_robot          = -1;
         double closest_robot_distance = 1000000.0;
 
-        for (int j = 0; j < (int)robot_poses.size(); j++)
+        for (int j = 0; j < n_robots; j++)
         {
             if (pallet_to_robot_distances[i][j] < closest_robot_distance && !robot_assigned[j])
             {
@@ -108,17 +108,18 @@ std::vector<int> TaskAssigner::assign_pallets_to_robots_heuristic(
         {
             task_assignments[closest_robot] = i;
             robot_assigned[closest_robot]   = true;
-            this->dropped_off_pallets.push_back(i);
         }
     }
 
     return task_assignments;
 }
 
-// =============================================================================
-// Dispatcher: chọn thuật toán dựa trên cờ USE_HEURISTIC.
-// Giữ nguyên 100% so với assign_pallets_to_robots() gốc.
-// =============================================================================
+void TaskAssigner::reset()
+{
+    this->dropped_off_pallets.clear();
+    this->task_assignments.clear();
+}
+
 void TaskAssigner::assign_pallets_to_robots(
     std::vector<std::vector<double>> robot_poses,
     std::vector<std::vector<double>> pallet_and_goal_poses)
@@ -133,13 +134,10 @@ void TaskAssigner::assign_pallets_to_robots(
     }
 }
 
-// =============================================================================
-// Hủy gán pallet của robot (dùng khi lập kế hoạch thất bại).
-// Xóa pallet khỏi dropped_off_pallets để robot khác có thể được gán.
-// Giữ nguyên 100% so với unassign_pallet_from_robot() gốc.
-// =============================================================================
 void TaskAssigner::unassign_pallet_from_robot(int robot_id)
 {
+    if (robot_id < 0 || robot_id >= (int)this->task_assignments.size())
+        return;
     int pallet_id = this->task_assignments[robot_id];
     this->task_assignments[robot_id] = -1;
 

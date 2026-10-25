@@ -1,25 +1,14 @@
-"""Capture checkerboard images from the same webcam stream used by the vision system.
-
-Run from this directory:
-    python capture_calibration_images.py --camera 1
-
-Controls:
-    Images are saved automatically when the checkerboard is detected.
-    Q/ESC - quit
-"""
-
 import argparse
 import time
 from pathlib import Path
-
 import cv2 as cv
-
 
 CHECKERBOARD_CORNERS = (9, 6)
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "images_calibration"
 
 
 def find_checkerboard(gray):
+    """Tìm tọa độ các góc bên trong bàn cờ hiệu chuẩn."""
     try:
         found, corners = cv.findChessboardCornersSB(
             gray, CHECKERBOARD_CORNERS, None
@@ -38,6 +27,7 @@ def find_checkerboard(gray):
 
 
 def main():
+    """Tự động chụp và lưu các khung hình bàn cờ để hiệu chuẩn camera."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--camera", type=int, default=1)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_DIR)
@@ -45,8 +35,6 @@ def main():
     args = parser.parse_args()
 
     args.output.mkdir(parents=True, exist_ok=True)
-    # Camo often exposes a usable stream through the default Windows backend,
-    # while forcing DirectShow can produce a black frame on some systems.
     cap = cv.VideoCapture(args.camera)
     if not cap.isOpened():
         cap.release()

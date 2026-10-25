@@ -40,9 +40,9 @@ if BASE_DIR not in sys.path:
 from planner_service import PlannerService
 
 
-# =============================================================================
+# 
 # Cấu hình test
-# =============================================================================
+# 
 MAP_SIZE = [2000, 1500]  # mm (sandbox 2000mm x 1500mm)
 
 ROBOT_POSES = [
@@ -64,9 +64,9 @@ NUM_ROBOTS = len(ROBOT_POSES)
 STRESS_TEST_CYCLES = 50
 
 
-# =============================================================================
+# 
 # Test 1: Kiểm tra cơ bản (sinh waypoints, kiểm tra tag)
-# =============================================================================
+# 
 def test_basic_planning(service: PlannerService) -> bool:
     print("\n[Test 1] Lập kế hoạch cơ bản...")
 
@@ -81,7 +81,7 @@ def test_basic_planning(service: PlannerService) -> bool:
 
     for i, path in enumerate(paths):
         if not path:
-            print(f"  ❌ Robot {i}: Không tìm được đường!")
+            print(f"  Robot {i}: Không tìm được đường!")
             all_passed = False
             continue
 
@@ -90,14 +90,14 @@ def test_basic_planning(service: PlannerService) -> bool:
         has_goal_tag    = 2 in tags  # tag=2: điểm giao pallet
 
         print(f"  Robot {i}: {len(path)} waypoints | "
-              f"tag=1: {'✓' if has_pallet_tag else '❌'} | "
-              f"tag=2: {'✓' if has_goal_tag else '❌'}")
+              f"tag=1: {'✓' if has_pallet_tag else ''} | "
+              f"tag=2: {'✓' if has_goal_tag else ''}")
 
         if not has_pallet_tag:
-            print(f"    ❌ Robot {i}: Thiếu waypoint pickup (tag=1)!")
+            print(f"   Robot {i}: Thiếu waypoint pickup (tag=1)!")
             all_passed = False
         if not has_goal_tag:
-            print(f"    ❌ Robot {i}: Thiếu waypoint drop-off (tag=2)!")
+            print(f"   Robot {i}: Thiếu waypoint drop-off (tag=2)!")
             all_passed = False
 
         if path:
@@ -107,9 +107,9 @@ def test_basic_planning(service: PlannerService) -> bool:
     return all_passed
 
 
-# =============================================================================
+# 
 # Test 2: Kiểm tra không rò rỉ bộ nhớ (50 chu kỳ)
-# =============================================================================
+# 
 def test_memory_stress(service: PlannerService) -> bool:
     print(f"\n[Test 2] Stress test {STRESS_TEST_CYCLES} chu kỳ kiểm tra rò rỉ RAM...")
 
@@ -136,19 +136,19 @@ def test_memory_stress(service: PlannerService) -> bool:
 
         # Cho phép tăng tối đa 50MB (bình thường do Python heap management)
         if mem_delta > 50:
-            print(f"  ❌ RAM tăng quá nhiều ({mem_delta:.1f} MB) — nghi ngờ memory leak!")
+            print(f" RAM tăng quá nhiều ({mem_delta:.1f} MB) — nghi ngờ memory leak!")
             return False
         else:
-            print(f"  ✓ RAM ổn định (tăng {mem_delta:.1f} MB — trong mức cho phép)")
+            print(f"  RAM ổn định (tăng {mem_delta:.1f} MB — trong mức cho phép)")
     else:
-        print(f"  ✓ Hoàn thành {STRESS_TEST_CYCLES} chu kỳ không crash ({elapsed:.1f}s)")
+        print(f"  Hoàn thành {STRESS_TEST_CYCLES} chu kỳ không crash ({elapsed:.1f}s)")
 
     return True
 
 
-# =============================================================================
+# 
 # Test 3: Kiểm tra validation đầu vào
-# =============================================================================
+# 
 def test_input_validation(service: PlannerService) -> bool:
     print("\n[Test 3] Kiểm tra validation đầu vào...")
 
@@ -160,30 +160,30 @@ def test_input_validation(service: PlannerService) -> bool:
             PALLET_POSES + [[100.0, 100.0, 0.0]],  # Thêm pallet thừa
             GOAL_POSES
         )
-        print("  ❌ Không bắt được ValueError khi pallet != goal!")
+        print("  Không bắt được ValueError khi pallet != goal!")
         return False
     except ValueError as e:
-        print(f"  ✓ ValueError bắt đúng: {e}")
+        print(f"  ValueError bắt đúng: {e}")
 
-    # Không có pallet -> trả về paths rỗng, không crash
+    # Không có pallet trả về paths rỗng, không crash
     try:
         empty_paths = service.plan_trajectories(MAP_SIZE, ROBOT_POSES, [], [])
         all_empty = all(len(p) == 0 for p in empty_paths)
         if all_empty:
-            print("  ✓ Không có pallet -> trả về paths rỗng bình thường")
+            print("Không có pallet trả về paths rỗng bình thường")
         else:
-            print("  ❌ Không có pallet nhưng paths không rỗng!")
+            print("  Không có pallet nhưng paths không rỗng!")
             return False
     except Exception as e:
-        print(f"  ❌ Exception không mong đợi: {e}")
+        print(f"  Exception không mong đợi: {e}")
         return False
 
     return True
 
 
-# =============================================================================
+# 
 # Main
-# =============================================================================
+# 
 def main():
     print("=" * 62)
     print("  PARROT Planner Module — Standalone Verification Test")
@@ -193,7 +193,7 @@ def main():
     service = PlannerService(num_robots=NUM_ROBOTS)
 
     if not service.is_available:
-        print("\n❌ planner_core chưa sẵn sàng — dừng test.")
+        print("\nplanner_core chưa sẵn sàng — dừng test.")
         print("   Biên dịch trước bằng lệnh:")
         print("   cmake -B build && cmake --build build --config Release")
         sys.exit(1)
@@ -211,16 +211,16 @@ def main():
     print("=" * 62)
     all_passed = True
     for name, passed in results.items():
-        status = "✓ PASS" if passed else "❌ FAIL"
+        status = "PASS" if passed else "FAIL"
         print(f"  {status}  {name}")
         if not passed:
             all_passed = False
 
     print("=" * 62)
     if all_passed:
-        print("  ✅ Tất cả kiểm thử ĐẠT — Module sẵn sàng tích hợp!")
+        print("  Tất cả kiểm thử ĐẠT — Module sẵn sàng tích hợp!")
     else:
-        print("  ❌ Một số kiểm thử THẤT BẠI — Xem chi tiết bên trên.")
+        print("  Một số kiểm thử THẤT BẠI — Xem chi tiết bên trên.")
     print("=" * 62)
 
     sys.exit(0 if all_passed else 1)
