@@ -60,16 +60,33 @@ private:
 
     double straight_time_step = STRAIGHT_TIME_STEP;
     double turn_time_step     = TURN_TIME_STEP;
+    double in_place_time_step = IN_PLACE_TURN_TIME_STEP;
 
     std::map<int, std::vector<std::vector<double>>> angle_to_dxdythetadtimecosts = {
-        {0, {{1, 0, 0.0, straight_time_step, STRAIGHT_COST}, {5, -5, M_PI / 4, turn_time_step, TURN_COST}, {5, 5, 7 * M_PI / 4, turn_time_step, TURN_COST}}},
-        {1, {{1, -1, M_PI / 4, straight_time_step, STRAIGHT_COST}, {0, -5, M_PI / 2, turn_time_step, TURN_COST}, {5, 0, 0, turn_time_step, TURN_COST}}},
-        {2, {{0, -1, M_PI / 2, straight_time_step, STRAIGHT_COST}, {-5, -5, 3 * M_PI / 4, turn_time_step, TURN_COST}, {5, -5, M_PI / 4, turn_time_step, TURN_COST}}},
-        {3, {{-1, -1, 3 * M_PI / 4, straight_time_step, STRAIGHT_COST}, {-5, 0, M_PI, turn_time_step, TURN_COST}, {0, -5, M_PI / 2, turn_time_step, TURN_COST}}},
-        {4, {{-1, 0, M_PI, straight_time_step, STRAIGHT_COST}, {-5, 5, 5 * M_PI / 4, turn_time_step, TURN_COST}, {-5, -5, 3 * M_PI / 4, turn_time_step, TURN_COST}}},
-        {5, {{-1, 1, 5 * M_PI / 4, straight_time_step, STRAIGHT_COST}, {0, 5, 3 * M_PI / 2, turn_time_step, TURN_COST}, {-5, 0, M_PI, turn_time_step, TURN_COST}}},
-        {6, {{0, 1, 3 * M_PI / 2, straight_time_step, STRAIGHT_COST}, {5, 5, 7 * M_PI / 4, turn_time_step, TURN_COST}, {-5, 5, 5 * M_PI / 4, turn_time_step, TURN_COST}}},
-        {7, {{1, 1, 7 * M_PI / 4, straight_time_step, STRAIGHT_COST}, {5, 0, 0.0, turn_time_step, TURN_COST}, {0, 5, 3 * M_PI / 2, turn_time_step, TURN_COST}}}
+        {0, {{1, 0, 0.0, straight_time_step, STRAIGHT_COST},
+             {5, -5, M_PI / 4, turn_time_step, TURN_COST},
+             {5, 5, 7 * M_PI / 4, turn_time_step, TURN_COST}}},
+        {1, {{1, -1, M_PI / 4, straight_time_step, STRAIGHT_COST},
+             {0, -5, M_PI / 2, turn_time_step, TURN_COST},
+             {5, 0, 0, turn_time_step, TURN_COST}}},
+        {2, {{0, -1, M_PI / 2, straight_time_step, STRAIGHT_COST},
+             {-5, -5, 3 * M_PI / 4, turn_time_step, TURN_COST},
+             {5, -5, M_PI / 4, turn_time_step, TURN_COST}}},
+        {3, {{-1, -1, 3 * M_PI / 4, straight_time_step, STRAIGHT_COST},
+             {-5, 0, M_PI, turn_time_step, TURN_COST},
+             {0, -5, M_PI / 2, turn_time_step, TURN_COST}}},
+        {4, {{-1, 0, M_PI, straight_time_step, STRAIGHT_COST},
+             {-5, 5, 5 * M_PI / 4, turn_time_step, TURN_COST},
+             {-5, -5, 3 * M_PI / 4, turn_time_step, TURN_COST}}},
+        {5, {{-1, 1, 5 * M_PI / 4, straight_time_step, STRAIGHT_COST},
+             {0, 5, 3 * M_PI / 2, turn_time_step, TURN_COST},
+             {-5, 0, M_PI, turn_time_step, TURN_COST}}},
+        {6, {{0, 1, 3 * M_PI / 2, straight_time_step, STRAIGHT_COST},
+             {5, 5, 7 * M_PI / 4, turn_time_step, TURN_COST},
+             {-5, 5, 5 * M_PI / 4, turn_time_step, TURN_COST}}},
+        {7, {{1, 1, 7 * M_PI / 4, straight_time_step, STRAIGHT_COST},
+             {5, 0, 0.0, turn_time_step, TURN_COST},
+             {0, 5, 3 * M_PI / 2, turn_time_step, TURN_COST}}}
     };
 };
 

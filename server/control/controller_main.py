@@ -85,6 +85,7 @@ class RobotController:
         self.wp_idx    = 0
         self.state     = STATE_IDLE if waypoints else STATE_DONE
         self._lift_time = None
+        self._trajectory_start = None
 
         if is_pickup_mode:
             self.pid_x     = PID(constants.CONTROLS_PICKUP_ROBOT_PID_KPx,
@@ -128,6 +129,112 @@ class RobotController:
         self.pid_y.reset()
         self.pid_theta.reset()
 
+    def _tick_trajectory(self, robot_pose, now):
+        if self._trajectory_start is None:
+            self._trajectory_start = now
+
+        elapsed = now - self._trajectory_start
+        if len(self.waypoints) == 1:
+            index = 0
+            target = self.waypoints[0]
+            dxdt = dydt = 0.0
+        else:
+            index = len(self.waypoints) - 2
+            for candidate in range(len(self.waypoints) - 1):
+                if elapsed <= self.waypoints[candidate + 1][3]:
+                    index = candidate
+                    break
+
+            first = self.waypoints[index]
+            second = self.waypoints[index + 1]
+            duration = max(second[3] - first[3], 1e-3)
+            u = _clamp((elapsed - first[3]) / duration, 0.0, 1.0)
+            dx = second[0] - first[0]
+            dy = second[1] - first[1]
+            distance = math.hypot(dx, dy)
+            tangent_scale = max(distance, 1.0)
+            m0 = (
+                math.cos(first[2]) * tangent_scale,
+                math.sin(first[2]) * tangent_scale,
+            )
+            m1 = (
+                math.cos(second[2]) * tangent_scale,
+                math.sin(second[2]) * tangent_scale,
+            )
+            h00 = 2 * u ** 3 - 3 * u ** 2 + 1
+            h10 = u ** 3 - 2 * u ** 2 + u
+            h01 = -2 * u ** 3 + 3 * u ** 2
+            h11 = u ** 3 - u ** 2
+            target = [
+                h00 * first[0] + h10 * m0[0] + h01 * second[0] + h11 * m1[0],
+                h00 * first[1] + h10 * m0[1] + h01 * second[1] + h11 * m1[1],
+                _interpolate_angle(first[2], second[2], u),
+                second[3],
+                second[4],
+            ]
+            dh00 = 6 * u ** 2 - 6 * u
+            dh10 = 3 * u ** 2 - 4 * u + 1
+            dh01 = -dh00
+            dh11 = 3 * u ** 2 - 2 * u
+            dxdt = (dh00 * first[0] + dh10 * m0[0] + dh01 * second[0] + dh11 * m1[0]) / duration
+            dydt = (dh00 * first[1] + dh10 * m0[1] + dh01 * second[1] + dh11 * m1[1]) / duration
+
+        self.wp_idx = index
+        rx, ry, rtheta = robot_pose
+        target_x, target_y, target_theta, target_time, tag = target
+        error_x = target_x - rx
+        error_y = target_y - ry
+        distance = math.hypot(error_x, error_y)
+        heading = math.atan2(error_y, error_x)
+        heading_err = _normalize_angle(heading - rtheta)
+        theta_err = _normalize_angle(target_theta - rtheta)
+        cos_theta = math.cos(rtheta)
+        sin_theta = math.sin(rtheta)
+        body_x = cos_theta * error_x + sin_theta * error_y
+        body_y = -sin_theta * error_x + cos_theta * error_y
+
+        if tag in (TAG_PALLET, TAG_GOAL) and elapsed >= target_time:
+            threshold = PALLET_XY_THRESH_MM if tag == TAG_PALLET else WAYPOINT_XY_THRESH_MM
+            if distance <= threshold and abs(theta_err) <= WAYPOINT_THETA_THRESH:
+                self.state = STATE_WAITING_LIFT_UP if tag == TAG_PALLET else STATE_WAITING_LIFT_DOWN
+                self._lift_time = now
+                return (PWM_NEUTRAL, PWM_NEUTRAL, (
+                    constants.PALLET_ACTION_LIFT_UP if tag == TAG_PALLET
+                    else constants.PALLET_ACTION_LIFT_DOWN
+                ))
+
+        if elapsed >= self.waypoints[-1][3] and distance < WAYPOINT_XY_THRESH_MM:
+            self.state = STATE_DONE
+            return (PWM_NEUTRAL, PWM_NEUTRAL, constants.PALLET_ACTION_DONT_SEND)
+
+        mm_s_per_pwm = 1.0 / max(constants.CONTROLS_PWM_PER_MM_S, 1e-6)
+        feedforward = math.hypot(dxdt, dydt)
+        linear_velocity = max(
+            0.0,
+            self.pid_x.compute(body_x, now) * mm_s_per_pwm + feedforward,
+        )
+        angular_velocity = (
+            self.pid_y.compute(body_y, now)
+            + self.pid_theta.compute(theta_err, now)
+        ) * mm_s_per_pwm / max(constants.CONTROLS_WHEEL_BASE_MM / 2, 1)
+        linear_velocity = _clamp(
+            linear_velocity,
+            -constants.CONTROLS_MAX_LINEAR_SPEED_MM_S,
+            constants.CONTROLS_MAX_LINEAR_SPEED_MM_S,
+        )
+        angular_velocity = _clamp(
+            angular_velocity,
+            -constants.CONTROLS_MAX_ANGULAR_SPEED_RAD_S,
+            constants.CONTROLS_MAX_ANGULAR_SPEED_RAD_S,
+        )
+        half_base = constants.CONTROLS_WHEEL_BASE_MM / 2
+        left_velocity = linear_velocity - half_base * angular_velocity
+        right_velocity = linear_velocity + half_base * angular_velocity
+        left_pwm = _velocity_to_pwm(left_velocity, constants.CONTROLS_WHEEL_LEFT_SIGN)
+        right_pwm = _velocity_to_pwm(right_velocity, constants.CONTROLS_WHEEL_RIGHT_SIGN)
+        left_pwm, right_pwm = _apply_pwm_safety_filter(left_pwm, right_pwm)
+        return (left_pwm, right_pwm, constants.PALLET_ACTION_DONT_SEND)
+
     def tick(self, robot_pose, now):
         """Tính toán lệnh PWM và hành động servo từ vị trí thực tế [x, y, theta]."""
         try:
@@ -151,59 +258,7 @@ class RobotController:
                     self.state = STATE_DONE
                 return (PWM_NEUTRAL, PWM_NEUTRAL, constants.PALLET_ACTION_DONT_SEND)
 
-            wp = self.current_waypoint
-            if wp is None:
-                self.state = STATE_DONE
-                return (PWM_NEUTRAL, PWM_NEUTRAL, constants.PALLET_ACTION_DONT_SEND)
-
-            target_x, target_y, target_theta, _, tag = wp
-            rx, ry, rtheta = robot_pose
-
-            dx = target_x - rx
-            dy = target_y - ry
-            dist = math.sqrt(dx * dx + dy * dy)
-
-            angle_to_target = math.atan2(dy, dx)
-            heading_err = _normalize_angle(angle_to_target - rtheta)
-            theta_err   = _normalize_angle(target_theta - rtheta)
-
-            err_x = dist * math.cos(heading_err)
-            err_y = dist * math.sin(heading_err)
-
-            xy_thresh = PALLET_XY_THRESH_MM if tag == TAG_PALLET else WAYPOINT_XY_THRESH_MM
-
-            if dist < xy_thresh and abs(theta_err) < WAYPOINT_THETA_THRESH:
-                if tag == TAG_PALLET:
-                    self.state = STATE_WAITING_LIFT_UP
-                    self._lift_time = now
-                    return (PWM_NEUTRAL, PWM_NEUTRAL, constants.PALLET_ACTION_LIFT_UP)
-
-                elif tag == TAG_GOAL:
-                    self.state = STATE_WAITING_LIFT_DOWN
-                    self._lift_time = now
-                    return (PWM_NEUTRAL, PWM_NEUTRAL, constants.PALLET_ACTION_LIFT_DOWN)
-
-                else:
-                    self.wp_idx += 1
-                    self.reset_pids()
-                    if self.wp_idx >= len(self.waypoints):
-                        self.state = STATE_DONE
-                    return (PWM_NEUTRAL, PWM_NEUTRAL, constants.PALLET_ACTION_DONT_SEND)
-
-            out_x     = self.pid_x.compute(err_x, now)
-            out_y     = self.pid_y.compute(err_y, now)
-            out_theta = self.pid_theta.compute(theta_err, now)
-
-            forward = out_x
-            turn    = out_y + out_theta
-
-            left_delta  = forward - turn
-            right_delta = forward + turn
-
-            left_pwm  = int(_clamp(PWM_NEUTRAL + left_delta,  PWM_MIN, PWM_MAX))
-            right_pwm = int(_clamp(PWM_NEUTRAL + right_delta, PWM_MIN, PWM_MAX))
-
-            return (left_pwm, right_pwm, constants.PALLET_ACTION_DONT_SEND)
+            return self._tick_trajectory(robot_pose, now)
         except Exception as e:
             print(f"[RobotController][ERROR] Lỗi trong tick R{self.hw_id}: {e}\n{traceback.format_exc()}")
             return (PWM_NEUTRAL, PWM_NEUTRAL, constants.PALLET_ACTION_DONT_SEND)
@@ -334,6 +389,10 @@ def _normalize_angle(angle):
         return 0.0
 
 
+def _interpolate_angle(start, end, amount):
+    return _normalize_angle(start + _normalize_angle(end - start) * amount)
+
+
 def _clamp(value, lo, hi):
     """Giới hạn giá trị trong khoảng [lo, hi]."""
     try:
@@ -341,6 +400,30 @@ def _clamp(value, lo, hi):
     except Exception as e:
         print(f"[_clamp][ERROR]: {e}")
         return lo
+
+
+def _velocity_to_pwm(velocity, wheel_sign):
+    if abs(velocity) < 1e-6:
+        return PWM_NEUTRAL
+    pwm_delta = abs(velocity) * constants.CONTROLS_PWM_PER_MM_S
+    pwm_delta += constants.CONTROLS_PWM_START_OFFSET
+    pwm_delta = min(pwm_delta, PWM_MAX_DELTA)
+    return int(round(PWM_NEUTRAL + math.copysign(pwm_delta, velocity * wheel_sign)))
+
+
+def _apply_pwm_safety_filter(left_pwm, right_pwm):
+    left_delta = _clamp(left_pwm - PWM_NEUTRAL, -PWM_MAX_DELTA, PWM_MAX_DELTA)
+    right_delta = _clamp(right_pwm - PWM_NEUTRAL, -PWM_MAX_DELTA, PWM_MAX_DELTA)
+    largest_delta = max(abs(left_delta), abs(right_delta))
+    if largest_delta > PWM_MAX_DELTA:
+        scale = PWM_MAX_DELTA / largest_delta
+        left_delta *= scale
+        right_delta *= scale
+    return (
+        int(round(_clamp(PWM_NEUTRAL + left_delta, PWM_MIN, PWM_MAX))),
+        int(round(_clamp(PWM_NEUTRAL + right_delta, PWM_MIN, PWM_MAX)),
+        ),
+    )
 
 
 def _find_pose_by_fid(poses, fid_ids, target_fid):

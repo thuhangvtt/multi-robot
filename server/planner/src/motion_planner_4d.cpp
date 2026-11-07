@@ -82,6 +82,13 @@ std::vector<Node *> MotionPlanner4D::get_neighbors(Node *curr_node,
     double time = move[3];
     double cost = move[4];
 
+    double forward_projection = dx * std::cos(theta) + dy * std::sin(theta);
+    if (forward_projection < 0.0) {
+      cost += REVERSE_COST_PENALTY;
+    } else if (std::abs(dx) < 1e-9 && std::abs(dy) < 1e-9) {
+      cost += IN_PLACE_TURN_COST_PENALTY;
+    }
+
     double h = std::sqrt(std::pow(goal[0] - (curr_node->x + dx), 2) +
                          std::pow(goal[1] - (curr_node->y + dy), 2) +
                          std::pow(goal[2] - new_theta, 2));
@@ -122,7 +129,7 @@ bool MotionPlanner4D::is_in_collision(Node *node, bool is_pallet_goal) {
   if (x_min < 0 || x_max >= (int)this->map.size() || y_min < 0 ||
       y_max >= (int)this->map[0].size()) {
     if (DEBUG)
-      std::cout << "[MotionPlanner4D] Robot ra ngoài biên bản đồ" << std::endl;
+      std::cout << "[MotionPlanner4D] Robot ra ngoai bien ban do" << std::endl;
     return true;
   }
 
@@ -214,14 +221,14 @@ int MotionPlanner4D::a_star(bool is_pallet_goal) {
       new Node((int)goal[0], (int)goal[1], goal[2], 0.0, 0.0, 0.0, nullptr);
   allocated_nodes.push_back(goal_node);
 
-  std::cout << "[MotionPlanner4D] Điểm bắt đầu: " << start_node->x << ", " << start_node->y << ", "
+  std::cout << "[MotionPlanner4D] Diem bat dau: " << start_node->x << ", " << start_node->y << ", "
             << start_node->theta << ", " << start_node->time << ", "
             << start_node->g_value << ", " << start_node->h_value << std::endl;
-  std::cout << "[MotionPlanner4D] Điểm đích: " << goal_node->x << ", " << goal_node->y << ", "
+  std::cout << "[MotionPlanner4D] Diem dich: " << goal_node->x << ", " << goal_node->y << ", "
             << goal_node->theta << std::endl;
 
   if (this->is_in_collision(goal_node, is_pallet_goal) && !is_pallet_goal) {
-    std::cout << "[MotionPlanner4D] Điểm đích bị va chạm" << std::endl;
+    std::cout << "[MotionPlanner4D] Diem dich bi va cham" << std::endl;
     cleanup();
     return -1;
   }
@@ -273,14 +280,14 @@ int MotionPlanner4D::a_star(bool is_pallet_goal) {
       std::chrono::steady_clock::now();
     if (std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() >
         MAX_SEARCH_TIME) {
-      std::cout << "[MotionPlanner4D] Quá thời gian tìm kiếm tối đa" << std::endl;
+      std::cout << "[MotionPlanner4D] Qua thoi gian tim kiem toi da" << std::endl;
       break;
     }
   }
 
 search_done:
   if (goal_node->parent == nullptr) {
-    std::cout << "[MotionPlanner4D] Không tìm thấy quỹ đạo hợp lệ" << std::endl;
+    std::cout << "[MotionPlanner4D] Khong tim thay quy dao hop le" << std::endl;
     cleanup();
     return -1;
   }
@@ -312,16 +319,16 @@ int MotionPlanner4D::plan() {
   this->path = {};
 
   if (this->a_star(true) == -1) {
-    std::cout << "[MotionPlanner4D] Không tìm thấy quỹ đạo tới pallet" << std::endl;
+    std::cout << "[MotionPlanner4D] Khong tim thay quy dao toi pallet" << std::endl;
     return -1;
   }
-  std::cout << "[MotionPlanner4D] Đã tìm thấy quỹ đạo tới pallet" << std::endl;
+  std::cout << "[MotionPlanner4D] Da tim thay quy dao toi pallet" << std::endl;
 
   if (this->a_star(false) == -1) {
-    std::cout << "[MotionPlanner4D] Không tìm thấy quỹ đạo tới điểm trả" << std::endl;
+    std::cout << "[MotionPlanner4D] Khong tim thay quy dao toi diem tra" << std::endl;
     return -1;
   }
-  std::cout << "[MotionPlanner4D] Đã tìm thấy quỹ đạo tới điểm trả" << std::endl;
+  std::cout << "[MotionPlanner4D] Da tim thay quy dao toi diem tra" << std::endl;
 
   return 0;
 }

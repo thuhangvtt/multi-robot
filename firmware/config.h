@@ -9,7 +9,7 @@
 #include <Arduino.h>
 #include "config_private.h"
 
-constexpr uint8_t ROBOT_ID = 3;
+constexpr uint8_t ROBOT_ID = 1;
 
 constexpr bool USE_STATIC_IP = true;
 const IPAddress STATIC_IP(192, 168, 100, 100 + ROBOT_ID);

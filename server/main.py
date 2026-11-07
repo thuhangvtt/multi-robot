@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+import atexit
 import traceback
 import cv2 as cv
 
@@ -46,6 +47,7 @@ def main():
     try:
         network    = RobotNetwork(debug=False)
         cv_system  = CV()
+        atexit.register(cv_system.stop_camera)
         visualizer = CVVisualizer()
         planner    = PlannerService(num_robots=len(constants.ROBOT_HARDWARE_NUMBERS))
         controller = ControllerMain(network)
@@ -66,6 +68,7 @@ def main():
     except Exception as e:
         print(f"[Main] FATAL: Khởi tạo camera/vision thất bại: {e}")
         print(traceback.format_exc())
+        cv_system.stop_camera()
         sys.exit(1)
 
     print("\n[Main] Kiem tra ket noi robot...")
@@ -112,7 +115,7 @@ def main():
             if state == SystemState.INIT or state == SystemState.CYCLE_DONE:
                 try:
                     pallet_poses_mm = cv_system.cv_GetPalletPositionsMM()
-                    goal_poses      = cv_system.cv_GetGoalPositions()
+                    goal_poses      = cv_system.cv_GetGoalPositionsMM()
                 except Exception as e:
                     print(f"[Main] LỖI: Lấy vị trí pallet/goal thất bại: {e}")
                     print(traceback.format_exc())
@@ -258,11 +261,7 @@ def main():
 def _get_goal_poses_mm(cv_system):
     """Lấy danh sách goal pose theo đơn vị mm."""
     try:
-        goal_px = cv_system.cv_GetGoalPositions()
-        mm_per_pixel = getattr(cv_system.cv_fiducial, 'mm_per_pixel', None)
-        if mm_per_pixel is None or mm_per_pixel == 0:
-            return [[g[0], g[1], g[2]] for g in goal_px]
-        return [[g[0] * mm_per_pixel, g[1] * mm_per_pixel, g[2]] for g in goal_px]
+        return cv_system.cv_GetGoalPositionsMM()
     except Exception as e:
         print(f"[Main] LỖI: _get_goal_poses_mm: {e}")
         print(traceback.format_exc())

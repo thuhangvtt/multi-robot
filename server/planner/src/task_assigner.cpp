@@ -22,7 +22,7 @@ std::vector<int> TaskAssigner::assign_pallets_to_robots_simple(
     std::vector<int> task_assignments;
     int n_robots = (int)robot_poses.size();
 
-    std::cout << "[TaskAssigner] Danh sách pallet đã hoàn thành: ";
+    std::cout << "[TaskAssigner] Danh sach pallet da hoan thanh: ";
     for (int i = 0; i < (int)this->dropped_off_pallets.size(); i++)
     {
         std::cout << this->dropped_off_pallets[i] << " ";

@@ -109,7 +109,7 @@ void PlannerCoordinator::set_pallet_and_goal_poses(
         this->pallet_and_goal_poses.push_back(pose);
     }
 
-    std::cout << "[PlannerCoordinator] Vị trí pallet và đích (cm):" << std::endl;
+    std::cout << "[PlannerCoordinator] Vi tri pallet va dich (cm):" << std::endl;
     for (auto &pose : this->pallet_and_goal_poses)
     {
         for (auto &v : pose) std::cout << v << " ";
@@ -154,18 +154,18 @@ int PlannerCoordinator::plan()
 
     for (int i = 0; i < n_robots; i++)
     {
-        std::cout << "[PlannerCoordinator] Lập kế hoạch cho robot " << i << std::endl;
-        std::cout << "[PlannerCoordinator] Vị trí robot hiện tại: ";
+        std::cout << "[PlannerCoordinator] Lap ke hoach cho robot " << i << std::endl;
+        std::cout << "[PlannerCoordinator] Vi tri robot hien tai: ";
         for (auto v : this->robot_poses[i]) std::cout << v << " ";
         std::cout << std::endl;
 
         if (i >= (int)task_assignments.size() || task_assignments[i] == -1)
         {
-            std::cout << "[PlannerCoordinator] Không có nhiệm vụ nào được gán cho robot " << i << std::endl;
+            std::cout << "[PlannerCoordinator] Khong co nhiem vu nao duoc gan cho robot " << i << std::endl;
             continue;
         }
 
-        std::cout << "[PlannerCoordinator] Vị trí pallet và đích hiện tại: ";
+        std::cout << "[PlannerCoordinator] Vi tri pallet va dich hien tai: ";
         for (auto v : this->pallet_and_goal_poses[task_assignments[i]])
             std::cout << v << " ";
         std::cout << std::endl;
@@ -176,13 +176,13 @@ int PlannerCoordinator::plan()
 
         if (this->motion_planners[i]->plan() == -1)
         {
-            std::cout << "[PlannerCoordinator] Lập kế hoạch thất bại cho robot " << i << std::endl;
+            std::cout << "[PlannerCoordinator] Lap ke hoach THAT BAI cho robot " << i << std::endl;
             this->task_assigner->unassign_pallet_from_robot(i);
             task_assignments = this->task_assigner->get_task_assignments();
         }
         else
         {
-            std::cout << "[PlannerCoordinator] Lập kế hoạch thành công cho robot " << i << std::endl;
+            std::cout << "[PlannerCoordinator] Lap ke hoach THANH CONG cho robot " << i << std::endl;
             this->paths[i] = this->motion_planners[i]->get_path();
         }
     }
@@ -242,7 +242,7 @@ std::vector<std::vector<std::vector<double>>> PlannerCoordinator::generate_paths
     std::vector<std::vector<int>> map = generate_map(map_size[0], map_size[1], pallet_poses);
     this->set_map(map);
 
-    std::cout << "[PlannerCoordinator] Vị trí các robot:" << std::endl;
+    std::cout << "[PlannerCoordinator] Vi tri cac robot:" << std::endl;
     for (auto &pose : robot_poses)
         std::cout << pose[0] << ", " << pose[1] << ", " << pose[2] << std::endl;
 
@@ -266,7 +266,7 @@ void PlannerCoordinator::print_paths()
 {
     for (int i = 0; i < (int)this->paths.size(); i++)
     {
-        std::cout << "[PlannerCoordinator] Quỹ đạo cho robot " << i << ":" << std::endl;
+        std::cout << "[PlannerCoordinator] Quy dao cho robot " << i << ":" << std::endl;
         if (i < (int)this->motion_planners.size())
         {
             this->motion_planners[i]->print_path();

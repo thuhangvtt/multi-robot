@@ -11,9 +11,9 @@ _aruco_params = cv.aruco.DetectorParameters()
 _aruco_params.adaptiveThreshWinSizeMin = 3
 _aruco_params.adaptiveThreshWinSizeMax = 53
 _aruco_params.adaptiveThreshWinSizeStep = 4
-_aruco_params.minMarkerPerimeterRate = 0.02
+_aruco_params.minMarkerPerimeterRate = 0.01   # nới lỏng hơn (mặc định 0.02) → detect marker nhỏ/xa hơn
 _aruco_params.maxMarkerPerimeterRate = 4.0
-_aruco_params.polygonalApproxAccuracyRate = 0.05
+_aruco_params.polygonalApproxAccuracyRate = 0.12  # chấp nhận hình dạng méo hơn (mặc định 0.05)
 _aruco_params.cornerRefinementMethod = cv.aruco.CORNER_REFINE_SUBPIX
 _aruco_detector = cv.aruco.ArucoDetector(_aruco_dict, _aruco_params)
 
@@ -441,5 +441,17 @@ class CV_Fiducial:
             ]
         except Exception as e:
             print(f"[CV_Fiducial] LỖI: cv_fiducial_getPalletPositionsMM: {e}")
+            print(traceback.format_exc())
+            return []
+
+    def cv_fiducial_getGoalPositionsMM(self):
+        """Lấy vị trí các điểm đích theo mm thực tế."""
+        try:
+            return [
+                self._warp_pixel_to_field_mm(pose)
+                for pose in self.cv_fiducial_getGoalPositions()
+            ]
+        except Exception as e:
+            print(f"[CV_Fiducial] LỖI: cv_fiducial_getGoalPositionsMM: {e}")
             print(traceback.format_exc())
             return []

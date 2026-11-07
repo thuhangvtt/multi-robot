@@ -83,9 +83,11 @@ class CVVisualizer:
 
                 # Tạo danh sách điểm pixel
                 pts = []
+                buffer_x = constants.CV_SANDBOX_WIDTH * constants.CV_SANDBOX_IMAGE_BUFFER_PERCENT / 2
+                buffer_y = constants.CV_SANDBOX_HEIGHT * constants.CV_SANDBOX_IMAGE_BUFFER_PERCENT / 2
                 for wp in path:
-                    px = int(wp[0] * scale)
-                    py = int(wp[1] * scale)
+                    px = int((wp[0] + buffer_x) * scale)
+                    py = int((wp[1] + buffer_y) * scale)
                     pts.append([px, py])
 
                 pts_np = np.array(pts, dtype=np.int32).reshape((-1, 1, 2))
@@ -162,7 +164,8 @@ class CVVisualizer:
             robot_positions, robot_ids = cv_obj.cv_GetRobotPositions()
 
             for pose, fid in zip(robot_positions, robot_ids):
-                cx, cy, orientation = pose[0], pose[1], pose[2]
+                cx, cy = pose[0], pose[1]
+                orientation = pose[2] + constants.CONTROLS_ROBOT_HEADING_OFFSET_RAD
                 cx_s = int(cx * scale)
                 cy_s = int(cy * scale)
 
