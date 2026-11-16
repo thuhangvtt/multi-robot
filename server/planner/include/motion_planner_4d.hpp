@@ -1,8 +1,3 @@
-/**
- * @file motion_planner_4d.hpp
- * @brief Định nghĩa lớp MotionPlanner4D cho thuật toán A* 4D (x, y, theta, time).
- */
-
 #ifndef MOTION_PLANNER_4D_HPP
 #define MOTION_PLANNER_4D_HPP
 
@@ -18,25 +13,18 @@ public:
     MotionPlanner4D(int robot_index);
     ~MotionPlanner4D();
 
-    /** Lập kế hoạch đường đi cho robot từ start đến pallet và drop-off. */
     int plan();
 
-    /** Đặt vị trí bắt đầu [x, y, theta] theo cm. */
     void set_start(std::vector<double> start);
 
-    /** Đặt vị trí pallet và drop-off theo cm. */
     void set_goals(std::vector<double> goals);
 
-    /** Đặt bản đồ lưới 2D. */
     void set_map(std::vector<std::vector<int>> map);
 
-    /** Đặt danh sách quỹ đạo của các robot để tránh va chạm động. */
     void set_robot_paths(std::vector<std::vector<std::vector<double>>> robot_paths);
 
-    /** Lấy quỹ đạo đã tìm được [x, y, theta, time, tag]. */
     std::vector<std::vector<double>> get_path();
 
-    /** In quỹ đạo ra màn hình để kiểm tra. */
     void print_path();
 
     int robot_index;
@@ -49,13 +37,10 @@ private:
     std::vector<std::vector<double>> path;
     std::vector<std::vector<std::vector<double>>> paths;
 
-    /** Thuật toán tìm kiếm A* 4D tới đích. */
     int a_star(bool is_pallet_goal);
 
-    /** Sinh tập nút lân cận hợp lệ theo bảng động học 8 hướng. */
     std::vector<Node *> get_neighbors(Node *curr_node, bool is_pallet_goal);
 
-    /** Kiểm tra va chạm tĩnh với bản đồ và động với các robot khác. */
     bool is_in_collision(Node *node, bool is_pallet_goal);
 
     double straight_time_step = STRAIGHT_TIME_STEP;
@@ -90,4 +75,4 @@ private:
     };
 };
 
-#endif // MOTION_PLANNER_4D_HPP
+#endif

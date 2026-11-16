@@ -1,21 +1,3 @@
-"""
-test_planner.py
-===============
-Script kiểm thử độc lập cho module planner.
-
-Mục đích:
-    - Xác nhận C++ extension planner_core đã được biên dịch và hoạt động đúng.
-    - Kiểm tra tính đúng đắn của thuật toán (waypoints hợp lệ, tag chính xác).
-    - Phát hiện rò rỉ bộ nhớ (RAM tăng dần khi chạy nhiều chu kỳ).
-
-Yêu cầu:
-    - Đã biên dịch planner_core: cmake -B build && cmake --build build --config Release
-    - Không cần camera, không cần phần cứng robot.
-
-Cách chạy:
-    cd server/planner
-    python test_planner.py
-"""
 
 import time
 import os
@@ -64,9 +46,7 @@ NUM_ROBOTS = len(ROBOT_POSES)
 STRESS_TEST_CYCLES = 50
 
 
-# 
-# Test 1: Kiểm tra cơ bản (sinh waypoints, kiểm tra tag)
-# 
+ 
 def test_basic_planning(service: PlannerService) -> bool:
     print("\n[Test 1] Lập kế hoạch cơ bản...")
 
@@ -107,9 +87,7 @@ def test_basic_planning(service: PlannerService) -> bool:
     return all_passed
 
 
-# 
-# Test 2: Kiểm tra không rò rỉ bộ nhớ (50 chu kỳ)
-# 
+
 def test_memory_stress(service: PlannerService) -> bool:
     print(f"\n[Test 2] Stress test {STRESS_TEST_CYCLES} chu kỳ kiểm tra rò rỉ RAM...")
 
@@ -134,7 +112,6 @@ def test_memory_stress(service: PlannerService) -> bool:
         mem_delta = mem_after - mem_before
         print(f"  RAM trước: {mem_before:.1f} MB | Sau: {mem_after:.1f} MB | Delta: {mem_delta:+.1f} MB")
 
-        # Cho phép tăng tối đa 50MB (bình thường do Python heap management)
         if mem_delta > 50:
             print(f" RAM tăng quá nhiều ({mem_delta:.1f} MB) — nghi ngờ memory leak!")
             return False
@@ -146,13 +123,11 @@ def test_memory_stress(service: PlannerService) -> bool:
     return True
 
 
-# 
-# Test 3: Kiểm tra validation đầu vào
-# 
+ 
 def test_input_validation(service: PlannerService) -> bool:
     print("\n[Test 3] Kiểm tra validation đầu vào...")
 
-    # Pallet nhiều hơn goal -> phải raise ValueError
+
     try:
         service.plan_trajectories(
             MAP_SIZE,
@@ -165,7 +140,7 @@ def test_input_validation(service: PlannerService) -> bool:
     except ValueError as e:
         print(f"  ValueError bắt đúng: {e}")
 
-    # Không có pallet trả về paths rỗng, không crash
+
     try:
         empty_paths = service.plan_trajectories(MAP_SIZE, ROBOT_POSES, [], [])
         all_empty = all(len(p) == 0 for p in empty_paths)
@@ -181,15 +156,12 @@ def test_input_validation(service: PlannerService) -> bool:
     return True
 
 
-# 
-# Main
-# 
+
 def main():
     print("=" * 62)
     print("  PARROT Planner Module — Standalone Verification Test")
     print("=" * 62)
 
-    # Khởi tạo service
     service = PlannerService(num_robots=NUM_ROBOTS)
 
     if not service.is_available:
@@ -198,14 +170,12 @@ def main():
         print("   cmake -B build && cmake --build build --config Release")
         sys.exit(1)
 
-    # Chạy tất cả test
     results = {
         "Lập kế hoạch cơ bản": test_basic_planning(service),
         "Stress test RAM":      test_memory_stress(service),
         "Validation đầu vào":  test_input_validation(service),
     }
 
-    # Tổng kết
     print("\n" + "=" * 62)
     print("  KẾT QUẢ KIỂM THỬ")
     print("=" * 62)

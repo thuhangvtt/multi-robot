@@ -52,10 +52,7 @@ Mở file `firmware/config.h`:
 * Nếu nạp cho **Xe 3**: đặt `constexpr uint8_t ROBOT_ID = 3;` (IP: `192.168.1.103`)
 
 Kiểm tra tên Wi-Fi và mật khẩu trong `firmware/config_private.h`:
-```cpp
-constexpr char WIFI_SSID[] = "Hang";
-constexpr char WIFI_PASSWORD[] = "0971397361";
-```
+
 
 ### Bước 2: Cắm cáp USB và Nạp code
 Mở terminal tại thư mục `firmware`:

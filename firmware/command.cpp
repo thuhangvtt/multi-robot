@@ -12,14 +12,18 @@ char line[80];
 uint8_t lineLength = 0;
 
 void printHelp() {
-  Serial.println("--- PARROT Robot Serial CLI ---");
-  Serial.println("M <left> <right>       Chay 2 dong co DC banh xe (vi du: M 110 110 hoac M 150 150)");
+  Serial.println("--- Robot Serial CLI ---");
+  Serial.println("M <left> <right>       Chay 2 dong co DC banh xe (vi du: M "
+                 "110 110 hoac M 150 150)");
   Serial.println("LIFT                   Nang / Gap pallet (ServoA & ServoB)");
   Serial.println("LOWER                  Ha / Nha pallet (ServoA & ServoB)");
   Serial.println("SERVO <a> <b>          Dat goc servo tuy chinh (0..180)");
   Serial.println("STOP                   Phanh dung banh xe");
-  Serial.println("STATUS                 Xem thong so dong co, servo, IMU va loi");
+  Serial.println(
+      "STATUS                 Xem thong so dong co, servo, IMU va loi");
   Serial.println("ZEROYAW                Reset goc Yaw IMU ve 0");
+  Serial.println("RESET                  Stop motors and clear timeout "
+                 "indicator (not required for HTTP)");
   Serial.println("HELP                   Xem menu huong dan nay");
 }
 
@@ -38,16 +42,26 @@ void handleLine(char *input) {
     servoSetAngles(angleA, angleB);
     Serial.println("OK SERVO");
   } else if (strcmp(input, "STOP") == 0) {
-    robotStop();
+    robotEmergencyStop();
     Serial.println("OK STOP");
+  } else if (strcmp(input, "RESET") == 0) {
+    robotResetEmergencyStop();
+    Serial.println("OK RESET (motors stopped)");
   } else if (strcmp(input, "STATUS") == 0) {
-    Serial.print("STATUS motorL="); Serial.print(motorGetLeftSpeed());
-    Serial.print(" motorR="); Serial.print(motorGetRightSpeed());
-    Serial.print(" lifted="); Serial.print(servoIsLifted() ? "YES" : "NO");
-    Serial.print(" angleA="); Serial.print(servoGetAngleA());
-    Serial.print(" angleB="); Serial.print(servoGetAngleB());
-    Serial.print(" drv8833_fault="); Serial.print(drv8833IsFault() ? "YES" : "NO");
-    Serial.print(" timed_out="); Serial.println(robotIsTimedOut() ? "YES" : "NO");
+    Serial.print("STATUS motorL=");
+    Serial.print(motorGetLeftSpeed());
+    Serial.print(" motorR=");
+    Serial.print(motorGetRightSpeed());
+    Serial.print(" lifted=");
+    Serial.print(servoIsLifted() ? "YES" : "NO");
+    Serial.print(" angleA=");
+    Serial.print(servoGetAngleA());
+    Serial.print(" angleB=");
+    Serial.print(servoGetAngleB());
+    Serial.print(" drv8833_fault=");
+    Serial.print(drv8833IsFault() ? "YES" : "NO");
+    Serial.print(" timed_out=");
+    Serial.println(robotIsTimedOut() ? "YES" : "NO");
     imuPrintStatus();
   } else if (strcmp(input, "IMU") == 0) {
     imuPrintStatus();
@@ -60,7 +74,7 @@ void handleLine(char *input) {
     Serial.println("ERROR unknown command; type HELP");
   }
 }
-}
+} // namespace
 
 void commandInit() {
   lineLength = 0;
@@ -71,7 +85,8 @@ void commandTask() {
   while (Serial.available() > 0) {
     const char character = static_cast<char>(Serial.read());
     if (character == '\n' || character == '\r') {
-      if (lineLength == 0) continue;
+      if (lineLength == 0)
+        continue;
       line[lineLength] = '\0';
       handleLine(line);
       lineLength = 0;
@@ -82,4 +97,4 @@ void commandTask() {
       Serial.println("ERROR command too long");
     }
   }
-}
+}

@@ -1,11 +1,27 @@
+# Python bytecode & compiled extensions
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyd
+
+# Virtual environments
 .venv/
-.vscode/
-REFACTORING_RESULTS.md
+venv/
+env/
 
-
-# Planner build & planning docs
+# Planner C++ build artifacts
 planner/build/
+planner/x64/
+planner/*.pyd
 planner/PLANNER_IMPLEMENTATION_PLAN.md
+
+# Runtime logs
+runtime/
+
+# Test & Debug temporary images
+.pytest_cache/
+.coverage
+vision/crop_*.jpg
+vision/*_zoom.png
+vision/pallet_user_img.jpg
+vision/test_vision_plan/results/

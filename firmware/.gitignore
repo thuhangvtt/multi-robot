@@ -1,1 +1,12 @@
+# PlatformIO build & local IDE
+.pio/
+.vscode/
+
+# Private credentials (WiFi passwords, personal IPs)
 config_private.h
+
+# Compiled binaries
+*.bin
+*.elf
+*.hex
+*.map

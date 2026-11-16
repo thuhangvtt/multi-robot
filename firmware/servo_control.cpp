@@ -1,8 +1,3 @@
-/**
- * @file servo_control.cpp
- * @brief Triển khai điều khiển cơ cấu nâng / gắp pallet.
- */
-
 #include "servo_control.h"
 #include "config.h"
 #include <ESP32Servo.h>

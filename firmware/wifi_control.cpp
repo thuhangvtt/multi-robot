@@ -1,8 +1,3 @@
-/**
- * @file wifi_control.cpp
- * @brief Triển khai HTTP WebServer nhận lệnh từ Server trung tâm.
- */
-
 #include "wifi_control.h"
 #include "config.h"
 #include "imu.h"
@@ -18,60 +13,63 @@ WebServer server(80);
 bool serverReady = false;
 uint32_t lastWifiCheck = 0;
 
-int extractJsonInt(const String& str, const char* key, int defaultValue) {
-  int keyIdx = str.indexOf(key);
-  if (keyIdx < 0) return defaultValue;
-  int colonIdx = str.indexOf(':', keyIdx);
-  if (colonIdx < 0) return defaultValue;
-
-  int start = colonIdx + 1;
-  while (start < (int)str.length() && (str[start] == ' ' || str[start] == '\t')) {
-    start++;
+bool readCommandInt(const char* key, int& value) {
+  if (!server.hasArg(key)) return false;
+  String text = server.arg(key);
+  if (!text.length() || text.length()>11) return false;
+  bool negative = text[0]=='-';
+  unsigned start = negative ? 1 : 0;
+  if (start == text.length()) return false;
+  int64_t number=0;
+  for (unsigned i=start; i<text.length(); ++i) {
+    if (text[i]<'0' || text[i]>'9') return false;
+    number=number*10+(text[i]-'0');
+    if (number>2147483647LL) return false;
   }
-  int end = start;
-  if (end < (int)str.length() && (str[end] == '-' || str[end] == '+')) {
-    end++;
-  }
-  while (end < (int)str.length() && isDigit(str[end])) {
-    end++;
-  }
-  if (end > start) {
-    return str.substring(start, end).toInt();
-  }
-  return defaultValue;
+  value=(int)(negative ? -number : number);
+  return true;
 }
 
-void handleRoot() {
-  server.send(200, "text/plain", "PARROT Robot OK");
-}
+void handleRoot() { server.send(200, "text/plain", "PARROT Robot OK"); }
 
 void handleCommandPost() {
-  String body = server.arg("plain");
-
-  int left = extractJsonInt(body, "\"l\"", 90);
-  int right = extractJsonInt(body, "\"r\"", 90);
-  int action = extractJsonInt(body, "\"action\"", 0);
-  if (action == 0) {
-    action = extractJsonInt(body, "\"e\"", 0);
+  int left,right,action=0,angleA=0,angleB=0,stabilizer=0;
+  bool angles=server.hasArg("servo_a") || server.hasArg("servo_b");
+  if (!readCommandInt("l",left) || !readCommandInt("r",right) ||
+      left<50 || left>130 || right<50 || right>130 ||
+      (server.hasArg("action") && (!readCommandInt("action",action) || action<0 || action>2)) ||
+      (angles && (!readCommandInt("servo_a",angleA) || !readCommandInt("servo_b",angleB) ||
+                  angleA<0 || angleA>180 || angleB<0 || angleB>180)) ||
+      (server.hasArg("stabilizer") && (!readCommandInt("stabilizer",stabilizer) || stabilizer<0 || stabilizer>1))) {
+    server.send(400,"text/plain","Expected l/r 50..130, action 0..2, optional servo angles 0..180"); return;
   }
-
-  if (server.hasArg("l")) left = server.arg("l").toInt();
-  if (server.hasArg("r")) right = server.arg("r").toInt();
-  if (server.hasArg("action")) action = server.arg("action").toInt();
-  else if (server.hasArg("e")) action = server.arg("e").toInt();
-
-  robotApplyCommand(left, right, action);
-  server.send(200, "application/json", "{\"status\":\"ok\"}");
+  if (drv8833IsFault()) { motorStop(); server.send(503,"text/plain","Motor driver fault"); return; }
+  robotApplyCommand(left,right,action);
+  if (angles) servoSetAngles(angleA,angleB);
+  if (server.arg("zero_yaw")=="1") imuResetYaw();
+  if (server.hasArg("stabilizer")) motorSetStabilizer(stabilizer==1);
+  server.send(200,"text/plain","OK");
 }
 
-void handleStop() {
-  robotStop();
-  server.send(200, "text/plain", "STOPPED");
+void handleParrotCommand() {
+  String dtype=server.arg("dtype");
+  int left,right,power;
+  if (dtype=="speed" && readCommandInt("servo1",left) && readCommandInt("servo2",right) &&
+      left>=50 && left<=130 && right>=50 && right<=130) {
+    if (drv8833IsFault()) { motorStop(); server.send(503,"text/plain","Motor driver fault"); return; }
+    robotApplyCommand(left,right,0);
+  } else if (dtype=="pallet" && readCommandInt("power",power) && (power==0 || power==1)) {
+    servoSetPalletAction(power==1 ? 1 : 2);
+  } else { server.send(400,"text/plain","Invalid PARROT speed/pallet command"); return; }
+  server.send(200,"text/plain","OK");
 }
+
+void handleStop() { robotStop(); server.send(200,"text/plain","STOPPED"); }
 
 void sendJsonStatus() {
   const String ip = WIFI_USE_ACCESS_POINT ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
   String body = "{";
+  body += "\"uptime_ms\":" + String(millis()) + ",";
   body += "\"robotId\":" + String(ROBOT_ID) + ",";
   body += "\"wifi\":\"" + String(WiFi.status() == WL_CONNECTED ? "connected" : "offline") + "\",";
   body += "\"ip\":\"" + ip + "\",";
@@ -144,6 +142,7 @@ void wifiControlInit() {
   }
 
   server.on("/", HTTP_GET, handleRoot);
+  server.on("/", HTTP_POST, handleParrotCommand);
   server.on("/cmd", HTTP_POST, handleCommandPost);
   server.on("/cmd", HTTP_GET, handleCommandPost);
   server.on("/status", HTTP_GET, sendJsonStatus);

@@ -12,13 +12,12 @@ TRAIL_COLORS = [
     (255, 144, 30),
 ]
 
-# Màu đường path hoạch định (sáng hơn trail)
 PATH_COLORS = [
-    (0, 220, 255),    # vàng-xanh
-    (255, 80, 200),   # hồng
-    (80, 255, 160),   # xanh lá
-    (255, 200, 0),    # vàng
-    (100, 180, 255),  # xanh dương nhạt
+    (0, 220, 255),
+    (255, 80, 200),
+    (80, 255, 160),
+    (255, 200, 0),
+    (100, 180, 255),
 ]
 
 TRAIL_MOVEMENT_THRESHOLD = 5
@@ -26,24 +25,26 @@ TRAIL_MAX_LENGTH = 500
 DASH_LENGTH = 10
 DASH_GAP = 6
 
-
 class CVVisualizer:
-    """Vẽ thông tin định vị và quỹ đạo robot lên khung hình sandbox."""
 
     def __init__(self):
         self.robot_trails = {}
         self._trail_color_map = {}
         self._trail_color_index = 0
-        self._planned_paths = []   # [[waypoint, ...], ...] mỗi phần tử là path của 1 robot
-        self._planned_fid_ids = [] # fiducial ID tương ứng
+        self._planned_paths = []
+        self._planned_fid_ids = []
+        self._wheel_speeds = {}
+
+    def set_wheel_speeds(self, speeds):
+        if isinstance(speeds, dict):
+            self._wheel_speeds = speeds
 
     def set_paths(self, paths, fid_ids):
-        """Cập nhật đường path hoạch định để hiển thị. paths: list path mỗi robot (pixel mm), fid_ids: danh sách fiducial ID."""
         self._planned_paths = paths if paths else []
         self._planned_fid_ids = fid_ids if fid_ids else []
 
     def visualize(self, cv_obj, window_name="PARROT Visualizer"):
-        """Hiển thị hình ảnh sandbox với các đánh dấu robot, pallet và goal."""
+
         try:
             sandbox_image = cv_obj.cv_getLatestSandboxImage()
             if sandbox_image is None:
@@ -68,11 +69,10 @@ class CVVisualizer:
             print(traceback.format_exc())
 
     def reset_trails(self):
-        """Xóa toàn bộ đường vết di chuyển của robot."""
+
         self.robot_trails.clear()
 
     def _draw_planned_paths(self, frame, scale):
-        """Vẽ đường path hoạch định (A* waypoints) lên frame bằng polylines."""
         try:
             for i, path in enumerate(self._planned_paths):
                 if not path or len(path) < 2:
@@ -81,33 +81,38 @@ class CVVisualizer:
                 color = PATH_COLORS[i % len(PATH_COLORS)]
                 fid = self._planned_fid_ids[i] if i < len(self._planned_fid_ids) else i
 
-                # Tạo danh sách điểm pixel
-                pts = []
                 buffer_x = constants.CV_SANDBOX_WIDTH * constants.CV_SANDBOX_IMAGE_BUFFER_PERCENT / 2
                 buffer_y = constants.CV_SANDBOX_HEIGHT * constants.CV_SANDBOX_IMAGE_BUFFER_PERCENT / 2
-                for wp in path:
+                from controller_main import trajectory_reference
+
+                pts = []
+                samples = []
+                for segment in range(len(path) - 1):
+                    for u in np.linspace(0.0, 1.0, 12, endpoint=False):
+                        t = path[segment][3] + u * (path[segment+1][3] - path[segment][3])
+                        samples.append(trajectory_reference(path, t, segment, segment+1)[1])
+                samples.append(path[-1])
+                for wp in samples:
                     px = int((wp[0] + buffer_x) * scale)
                     py = int((wp[1] + buffer_y) * scale)
                     pts.append([px, py])
 
                 pts_np = np.array(pts, dtype=np.int32).reshape((-1, 1, 2))
 
-                # Vẽ đường path (trong suốt hơn bằng cách blend)
                 overlay = frame.copy()
                 cv.polylines(overlay, [pts_np], isClosed=False, color=color, thickness=2, lineType=cv.LINE_AA)
-                cv.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+                cv.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
 
-                # Vẽ chấm tròn tại mỗi waypoint
-                for pt in pts:
-                    cv.circle(frame, tuple(pt), 3, color, -1)
+                for wp in path:
+                    wx = int((wp[0] + buffer_x) * scale)
+                    wy = int((wp[1] + buffer_y) * scale)
+                    w_th = wp[2]
+                    arr_l = 18 * scale
+                    w_end_x = int(wx + arr_l * np.cos(w_th))
+                    w_end_y = int(wy - arr_l * np.sin(w_th))
+                    cv.arrowedLine(frame, (wx, wy), (w_end_x, w_end_y), color, 1, tipLength=0.35)
+                    cv.circle(frame, (wx, wy), 2, color, -1)
 
-                # Vẽ mũi tên ở waypoint cuối
-                if len(pts) >= 2:
-                    p1 = tuple(pts[-2])
-                    p2 = tuple(pts[-1])
-                    cv.arrowedLine(frame, p1, p2, color, 2, tipLength=0.4)
-
-                # Label robot tại điểm đầu path
                 if pts:
                     cv.putText(frame, f"P-R{fid}", (pts[0][0] + 5, pts[0][1] - 8),
                                cv.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv.LINE_AA)
@@ -116,7 +121,7 @@ class CVVisualizer:
             print(traceback.format_exc())
 
     def _draw_corners(self, frame, cv_obj, scale):
-        """Vẽ điểm đánh dấu các góc sandbox."""
+
         try:
             corner_positions = cv_obj.cv_GetCornerPositions()
             for pose in corner_positions:
@@ -131,13 +136,32 @@ class CVVisualizer:
             print(traceback.format_exc())
 
     def _draw_pallets(self, frame, cv_obj, scale):
-        """Vẽ điểm đánh dấu pallet."""
+
         try:
             pallet_positions = cv_obj.cv_GetPalletPositions()
             for i, pose in enumerate(pallet_positions):
                 cx_s = int(pose[0] * scale)
                 cy_s = int(pose[1] * scale)
-                cv.circle(frame, (cx_s, cy_s), 2, (0, 0, 255), -1)
+                cv.circle(frame, (cx_s, cy_s), 3, (0, 0, 255), -1)
+
+                if len(pose) > 2 and pose[2] is not None:
+                    p_th = (pose[2] + getattr(constants, 'CV_PALLET_APPROACH_ANGLE_OFFSET', 0.0)) % (2 * np.pi)
+                    offset = getattr(constants, 'CV_PALLET_OFFSET', 0)
+                    if offset > 0:
+                        dock_x = int((pose[0] - offset * np.cos(p_th)) * scale)
+                        dock_y = int((pose[1] + offset * np.sin(p_th)) * scale)
+
+                        cv.circle(frame, (dock_x, dock_y), 4, (0, 255, 255), 1)
+
+                        cv.arrowedLine(frame, (dock_x, dock_y), (cx_s, cy_s),
+                                       (0, 165, 255), 2, tipLength=0.3)
+                    else:
+                        arr_len = 35 * scale
+                        p_end_x = int(cx_s + arr_len * np.cos(p_th))
+                        p_end_y = int(cy_s - arr_len * np.sin(p_th))
+                        cv.arrowedLine(frame, (cx_s, cy_s), (p_end_x, p_end_y),
+                                       (0, 165, 255), 2, tipLength=0.3)
+
                 cv.putText(frame, f"P{i}", (cx_s + 10, cy_s - 5),
                            cv.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1, cv.LINE_AA)
         except Exception as e:
@@ -145,13 +169,13 @@ class CVVisualizer:
             print(traceback.format_exc())
 
     def _draw_goals(self, frame, cv_obj, scale):
-        """Vẽ điểm đánh dấu đích đến."""
+
         try:
             goal_positions = cv_obj.cv_GetGoalPositions()
             for i, pose in enumerate(goal_positions):
                 cx_s = int(pose[0] * scale)
                 cy_s = int(pose[1] * scale)
-                cv.circle(frame, (cx_s, cy_s), 2, (0, 0, 255), -1)
+                cv.circle(frame, (cx_s, cy_s), 3, (0, 0, 255), -1)
                 cv.putText(frame, f"G{i}", (cx_s + 10, cy_s - 5),
                            cv.FONT_HERSHEY_SIMPLEX, 0.4, (0, 200, 0), 1, cv.LINE_AA)
         except Exception as e:
@@ -159,7 +183,7 @@ class CVVisualizer:
             print(traceback.format_exc())
 
     def _draw_robots(self, frame, cv_obj, scale):
-        """Vẽ vị trí, hướng và vệt di chuyển nét đứt của robot."""
+
         try:
             robot_positions, robot_ids = cv_obj.cv_GetRobotPositions()
 
@@ -169,16 +193,34 @@ class CVVisualizer:
                 cx_s = int(cx * scale)
                 cy_s = int(cy * scale)
 
-                cv.circle(frame, (cx_s, cy_s), 2, (0, 0, 255), -1)
+                cv.circle(frame, (cx_s, cy_s), 3, (0, 0, 255), -1)
 
-                arrow_len = 60 * scale
-                end_x = int(cx_s + arrow_len * np.cos(orientation))
-                end_y = int(cy_s - arrow_len * np.sin(orientation))
-                cv.arrowedLine(frame, (cx_s, cy_s), (end_x, end_y),
+                blue_len = 65 * scale
+                blue_end_x = int(cx_s + blue_len * np.cos(orientation))
+                blue_end_y = int(cy_s - blue_len * np.sin(orientation))
+                cv.arrowedLine(frame, (cx_s, cy_s), (blue_end_x, blue_end_y),
                                (255, 0, 0), 2, tipLength=0.3)
 
+                v_left, v_right = self._wheel_speeds.get(fid, (0.0, 0.0))
+                if abs(v_left) > 1e-3 or abs(v_right) > 1e-3:
+                    magnitude = (abs(v_right) + abs(v_left)) * 15 * scale * scale
+                    steer_angle = ((v_right - v_left) / max(constants.CONTROLS_CALIBRATED_SPEED_MM_S, 1.0)) * (np.pi / 2.0)
+                    cmd_angle = orientation + steer_angle
+                    white_len = max(magnitude, 25 * scale)
+                    white_end_x = int(cx_s + white_len * np.cos(cmd_angle))
+                    white_end_y = int(cy_s - white_len * np.sin(cmd_angle))
+                    cv.arrowedLine(frame, (cx_s, cy_s), (white_end_x, white_end_y),
+                                   (255, 255, 255), 2, tipLength=0.35)
+                else:
+
+                    white_len = 25 * scale
+                    white_end_x = int(cx_s + white_len * np.cos(orientation))
+                    white_end_y = int(cy_s - white_len * np.sin(orientation))
+                    cv.arrowedLine(frame, (cx_s, cy_s), (white_end_x, white_end_y),
+                                   (255, 255, 255), 1, tipLength=0.35)
+
                 cv.putText(frame, f"R{fid}", (cx_s + 10, cy_s - 10),
-                           cv.FONT_HERSHEY_SIMPLEX, 0.45, (255, 0, 0), 1, cv.LINE_AA)
+                           cv.FONT_HERSHEY_SIMPLEX, 0.45, (255, 140, 0), 1, cv.LINE_AA)
 
                 self._update_trail(fid, cx, cy)
 
@@ -189,7 +231,7 @@ class CVVisualizer:
             print(traceback.format_exc())
 
     def _update_trail(self, fiducial_id, x, y):
-        """Cập nhật tọa độ vào lịch sử vệt di chuyển khi robot di chuyển qua ngưỡng tối thiểu."""
+
         try:
             if fiducial_id not in self.robot_trails:
                 self.robot_trails[fiducial_id] = deque(maxlen=TRAIL_MAX_LENGTH)
@@ -208,7 +250,7 @@ class CVVisualizer:
             print(traceback.format_exc())
 
     def _get_trail_color(self, fiducial_id):
-        """Lấy màu vệt hiển thị cố định cho từng robot."""
+
         try:
             if fiducial_id not in self._trail_color_map:
                 idx = self._trail_color_index % len(TRAIL_COLORS)
@@ -221,7 +263,7 @@ class CVVisualizer:
             return (0, 255, 0)
 
     def _draw_dashed_trail(self, img, fiducial_id, scale, color, thickness=2):
-        """Vẽ đường nét đứt biểu diễn vệt di chuyển của robot."""
+
         try:
             trail = self.robot_trails.get(fiducial_id)
             if trail is None or len(trail) < 2:

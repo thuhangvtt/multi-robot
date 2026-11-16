@@ -1,6 +1,16 @@
+# Flutter & Dart build
 build/
 .dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+
+# Android build & local paths
 .gradle/
+local.properties
+*.apk
+*.aab
+
+# IDE & Editor
 .idea/
 *.iml
-local.properties

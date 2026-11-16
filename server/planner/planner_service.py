@@ -1,6 +1,7 @@
 import os
 import sys
 import traceback
+import math
 
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
     try:
@@ -54,9 +55,7 @@ if not _CORE_AVAILABLE:
 
 from path_postprocessor import precondition_path
 
-
 class PlannerService:
-    """Python Adapter cho C++ PlannerCoordinator."""
 
     def __init__(self, num_robots: int):
         self.num_robots = num_robots
@@ -73,7 +72,7 @@ class PlannerService:
 
     @property
     def is_available(self) -> bool:
-        """Trả về True nếu C++ extension đã được load thành công."""
+
         return self._coordinator is not None
 
     def plan_trajectories(
@@ -81,9 +80,10 @@ class PlannerService:
         map_size: list,
         robot_poses: list,
         pallet_poses: list,
-        goal_poses: list
+        goal_poses: list,
+        obstacle_poses=None,
     ) -> list:
-        """Lập kế hoạch đường đi cho tất cả robot."""
+
         try:
             if self._coordinator is None:
                 raise RuntimeError(
@@ -96,6 +96,15 @@ class PlannerService:
                     f"Số pallet ({len(pallet_poses)}) phải bằng số goal ({len(goal_poses)})."
                 )
 
+            if len(map_size) != 2 or any(not isinstance(v, int) or v < 10 for v in map_size):
+                raise ValueError('Map must contain two positive integer dimensions in mm')
+            for poses in (robot_poses, pallet_poses, goal_poses, obstacle_poses or []):
+                for pose in poses:
+                    if len(pose) != 3 or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in pose):
+                        raise ValueError('Pose must be finite [x_mm, y_mm, theta_rad]')
+                    if not (0 <= pose[0] < map_size[0] and 0 <= pose[1] < map_size[1]):
+                        raise ValueError('Pose outside fixed field bounds')
+
             if len(robot_poses) == 0:
                 print("[PlannerService] Không có robot — trả về danh sách rỗng.")
                 return []
@@ -105,14 +114,21 @@ class PlannerService:
                 return [[] for _ in range(self.num_robots)]
 
             raw_paths = self._coordinator.generate_paths(
-                map_size, robot_poses, pallet_poses, goal_poses
+                map_size, robot_poses, pallet_poses, goal_poses, obstacle_poses or []
             )
+            self.last_assignments = list(self._coordinator.get_task_assignments())
+            if not any(raw_paths):
+                raise RuntimeError("NO_PATH: tasks remain but no robot has a path")
 
             processed_paths = []
             for i, path in enumerate(raw_paths):
                 if path:
                     path_copy = [list(wp) for wp in path]
-                    processed_paths.append(precondition_path(path_copy))
+                    processed = precondition_path(path_copy)
+
+                    if processed and (abs(processed[0][0] - path[0][0]) > 1e-3 or abs(processed[0][1] - path[0][1]) > 1e-3):
+                        processed.insert(0, list(path[0]))
+                    processed_paths.append(processed)
                 else:
                     processed_paths.append([])
 
@@ -122,4 +138,4 @@ class PlannerService:
             raise
         except Exception as e:
             print(f"[PlannerService][ERROR] Lỗi trong quá trình lập kế hoạch: {e}\n{traceback.format_exc()}")
-            return [[] for _ in range(self.num_robots)]
+            raise

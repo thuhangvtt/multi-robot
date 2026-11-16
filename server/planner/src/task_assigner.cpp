@@ -1,8 +1,3 @@
-/**
- * @file task_assigner.cpp
- * @brief Gán nhiệm vụ Pallet cho Robot.
- */
-
 #include "task_assigner.hpp"
 #include "planner_constants.hpp"
 
@@ -29,7 +24,6 @@ std::vector<int> TaskAssigner::assign_pallets_to_robots_simple(
     }
     std::cout << std::endl;
 
-    // Track pallets assigned in THIS planning round (separate from completed pallets)
     std::vector<int> currently_assigned;
 
     for (int i = 0; i < n_robots; i++)
@@ -37,11 +31,11 @@ std::vector<int> TaskAssigner::assign_pallets_to_robots_simple(
         bool task_assigned = false;
         for (int j = 0; j < (int)pallet_and_goal_poses.size(); j++)
         {
-            // Skip pallets already completed (delivered)
+
             bool already_done = std::find(this->dropped_off_pallets.begin(),
                                           this->dropped_off_pallets.end(), j)
                                 != this->dropped_off_pallets.end();
-            // Skip pallets already assigned to another robot this round
+
             bool already_assigned = std::find(currently_assigned.begin(),
                                               currently_assigned.end(), j)
                                    != currently_assigned.end();

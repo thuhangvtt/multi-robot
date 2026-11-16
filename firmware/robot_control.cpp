@@ -1,8 +1,3 @@
-/**
- * @file robot_control.cpp
- * @brief Triển khai điều phối lệnh, watchdog timeout và tín hiệu LED.
- */
-
 #include "robot_control.h"
 #include "config.h"
 #include "motor.h"
@@ -14,6 +9,7 @@ uint32_t lastCommandTime = 0;
 bool isTimedOut = false;
 uint32_t lastBluePulse = 0;
 bool bluePulseActive = false;
+bool hasCommand = false;
 }
 
 void robotControlInit() {
@@ -27,10 +23,12 @@ void robotControlInit() {
 }
 
 void robotApplyCommand(int leftSpeed, int rightSpeed, int palletAction) {
+  if (drv8833IsFault()) { motorStop(); return; }
   motorSetSpeeds(leftSpeed, rightSpeed);
   servoSetPalletAction(palletAction);
 
   lastCommandTime = millis();
+  hasCommand = true;
   isTimedOut = false;
   robotSetLedRed(false);
   robotPulseLedBlue();
@@ -38,6 +36,18 @@ void robotApplyCommand(int leftSpeed, int rightSpeed, int palletAction) {
 
 void robotStop() {
   motorStop();
+}
+
+void robotEmergencyStop() {
+  motorStop();
+  robotSetLedRed(true);
+}
+
+void robotResetEmergencyStop() {
+  motorStop();
+  hasCommand = false;
+  isTimedOut = false;
+  lastCommandTime = millis();
 }
 
 void robotSetLedRed(bool on) {
@@ -61,9 +71,11 @@ bool robotIsTimedOut() {
 void robotControlTask() {
   const uint32_t now = millis();
 
-  if (!isTimedOut && (now - lastCommandTime > COMMAND_TIMEOUT_MS)) {
+  if (hasCommand && !isTimedOut && (now - lastCommandTime > COMMAND_TIMEOUT_MS)) {
     isTimedOut = true;
-    motorStop();
+    const bool moving = (motorGetLeftSpeed() != 0 && motorGetLeftSpeed() != 90) ||
+                        (motorGetRightSpeed() != 0 && motorGetRightSpeed() != 90);
+    if (moving) robotEmergencyStop(); else motorStop();
     robotSetLedRed(true);
     Serial.println("[Watchdog] Command timeout! Stopped motors.");
   }
@@ -74,6 +86,6 @@ void robotControlTask() {
   }
 
   if (drv8833IsFault()) {
-    robotSetLedRed(true);
+    robotEmergencyStop();
   }
 }

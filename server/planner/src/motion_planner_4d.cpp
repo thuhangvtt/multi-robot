@@ -1,8 +1,3 @@
-/**
- * @file motion_planner_4d.cpp
- * @brief Triển khai thuật toán lập quỹ đạo A* 4D (x, y, theta, time).
- */
-
 #include "motion_planner_4d.hpp"
 #include <algorithm>
 #include <chrono>
@@ -22,6 +17,11 @@ void MotionPlanner4D::set_start(std::vector<double> start) {
     this->start[2] += 2 * M_PI;
   } else if (this->start[2] > 2 * M_PI) {
     this->start[2] -= 2 * M_PI;
+  }
+
+  double nearest_grid_theta = std::round(this->start[2] / (M_PI / 4.0)) * (M_PI / 4.0);
+  if (std::abs(this->start[2] - nearest_grid_theta) <= (M_PI / 12.0)) {
+    this->start[2] = nearest_grid_theta;
   }
 }
 
@@ -81,13 +81,6 @@ std::vector<Node *> MotionPlanner4D::get_neighbors(Node *curr_node,
     double new_theta = move[2];
     double time = move[3];
     double cost = move[4];
-
-    double forward_projection = dx * std::cos(theta) + dy * std::sin(theta);
-    if (forward_projection < 0.0) {
-      cost += REVERSE_COST_PENALTY;
-    } else if (std::abs(dx) < 1e-9 && std::abs(dy) < 1e-9) {
-      cost += IN_PLACE_TURN_COST_PENALTY;
-    }
 
     double h = std::sqrt(std::pow(goal[0] - (curr_node->x + dx), 2) +
                          std::pow(goal[1] - (curr_node->y + dy), 2) +
@@ -257,7 +250,7 @@ int MotionPlanner4D::a_star(bool is_pallet_goal) {
       while (diff_th > 2 * M_PI) diff_th -= 2 * M_PI;
       if (diff_th > M_PI) diff_th = 2 * M_PI - diff_th;
 
-      if (diff_th <= GOAL_THETA_TOLERANCE) {
+      if (!is_pallet_goal || diff_th <= GOAL_THETA_TOLERANCE) {
         goal_node = current_node;
         break;
       }

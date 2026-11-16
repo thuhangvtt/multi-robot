@@ -1,8 +1,3 @@
-/**
- * @file planner_coordinator.cpp
- * @brief Điều phối lập lịch quỹ đạo đa robot.
- */
-
 #include "planner_coordinator.hpp"
 #include <chrono>
 
@@ -237,9 +232,12 @@ std::vector<std::vector<std::vector<double>>> PlannerCoordinator::generate_paths
     std::vector<int> map_size,
     std::vector<std::vector<double>> robot_poses,
     std::vector<std::vector<double>> pallet_poses,
-    std::vector<std::vector<double>> goal_poses)
+    std::vector<std::vector<double>> goal_poses,
+    std::vector<std::vector<double>> obstacle_poses)
 {
-    std::vector<std::vector<int>> map = generate_map(map_size[0], map_size[1], pallet_poses);
+    auto occupied_poses = pallet_poses;
+    occupied_poses.insert(occupied_poses.end(), obstacle_poses.begin(), obstacle_poses.end());
+    std::vector<std::vector<int>> map = generate_map(map_size[0], map_size[1], occupied_poses);
     this->set_map(map);
 
     std::cout << "[PlannerCoordinator] Vi tri cac robot:" << std::endl;

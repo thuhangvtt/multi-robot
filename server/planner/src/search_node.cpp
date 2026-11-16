@@ -1,8 +1,3 @@
-/**
- * @file search_node.cpp
- * @brief Triển khai constructor và destructor của Node A* 4D.
- */
-
 #include "search_node.hpp"
 
 Node::Node(int x, int y, double theta, double time,

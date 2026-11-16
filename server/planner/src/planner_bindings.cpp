@@ -1,8 +1,3 @@
-/**
- * @file planner_bindings.cpp
- * @brief Python binding qua pybind11 cho module planner_core.
- */
-
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include "planner_coordinator.hpp"
@@ -41,11 +36,14 @@ PYBIND11_MODULE(planner_core, m)
 
         .def("get_paths", &PlannerCoordinator::get_paths,
              "Lấy quỹ đạo các robot theo mm.")
+        .def("get_task_assignments", &PlannerCoordinator::get_task_assignments)
 
         .def("generate_paths", &PlannerCoordinator::generate_paths,
              py::arg("map_size"),
              py::arg("robot_poses"),
              py::arg("pallet_poses"),
              py::arg("goal_poses"),
+             py::arg("obstacle_poses") = std::vector<std::vector<double>>{},
+             py::call_guard<py::gil_scoped_release>(),
              "Pipeline trọn gói: sinh map, gán việc, lập quỹ đạo và trả về kết quả.");
 }

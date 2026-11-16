@@ -10,16 +10,16 @@ _aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_50)
 _aruco_params = cv.aruco.DetectorParameters()
 _aruco_params.adaptiveThreshWinSizeMin = 3
 _aruco_params.adaptiveThreshWinSizeMax = 53
-_aruco_params.adaptiveThreshWinSizeStep = 4
-_aruco_params.minMarkerPerimeterRate = 0.01   # nới lỏng hơn (mặc định 0.02) → detect marker nhỏ/xa hơn
+_aruco_params.adaptiveThreshWinSizeStep = 3
+_aruco_params.minMarkerPerimeterRate = 0.01
 _aruco_params.maxMarkerPerimeterRate = 4.0
-_aruco_params.polygonalApproxAccuracyRate = 0.12  # chấp nhận hình dạng méo hơn (mặc định 0.05)
-_aruco_params.cornerRefinementMethod = cv.aruco.CORNER_REFINE_SUBPIX
+_aruco_params.polygonalApproxAccuracyRate = 0.12
+_aruco_params.perspectiveRemoveIgnoredMarginPerCell = 0.15
+_aruco_params.cornerRefinementMethod = cv.aruco.CORNER_REFINE_CONTOUR
 _aruco_detector = cv.aruco.ArucoDetector(_aruco_dict, _aruco_params)
 
-
 def _estimate_pose_single_marker(marker_corner, marker_size, camera_matrix, dist_coeffs):
-    """Ước lượng tư thế 3D (rvec, tvec) của một ArUco marker."""
+
     try:
         half = marker_size / 2.0
         obj_points = np.array([
@@ -43,14 +43,12 @@ def _estimate_pose_single_marker(marker_corner, marker_size, camera_matrix, dist
         print(traceback.format_exc())
         return None, None
 
-
 def _marker_center_from_corners(corners):
-    """Tính tâm marker từ giao điểm 2 góc đối diện."""
+
     return (corners[0] + corners[2]) / 2.0
 
-
 def _projected_square_center(corners):
-    """Tính tâm phối cảnh chính xác từ giao điểm 2 đường chéo."""
+
     try:
         first_start, first_end = corners[0], corners[2]
         second_start, second_end = corners[1], corners[3]
@@ -74,9 +72,7 @@ def _projected_square_center(corners):
         print(traceback.format_exc())
         return _marker_center_from_corners(corners)
 
-
 class CV_Fiducial:
-    """Xử lý phát hiện ArUco marker và biến đổi phối cảnh sandbox."""
 
     def __init__(self):
         self.cv_fiducial_markerDict = {}
@@ -87,9 +83,11 @@ class CV_Fiducial:
         self.sandbox_width_mm = constants.CV_SANDBOX_WIDTH
         self._last_robot_ids_logged = None
         self._marker_missed_frames = {}
+        self._marker_seen_at = {}
+        self._observed_ids = set()
 
     def _apply_center_offset(self, fiducial_id, center_x, center_y, orientation):
-        """Bù sai lệch tâm giữa marker và tâm thực tế của vật thể."""
+
         try:
             if fiducial_id in constants.ROBOT_CENTER_OFFSETS_MM:
                 forward, right = constants.ROBOT_CENTER_OFFSETS_MM[fiducial_id]
@@ -108,7 +106,7 @@ class CV_Fiducial:
 
     @staticmethod
     def _warp_pixel_to_field_mm(pose):
-        """Chuyển tọa độ pixel trong ảnh đã làm phẳng sang mm thực tế trên sân."""
+
         try:
             buffer_x = constants.CV_SANDBOX_WIDTH * constants.CV_SANDBOX_IMAGE_BUFFER_PERCENT / 2
             buffer_y = constants.CV_SANDBOX_HEIGHT * constants.CV_SANDBOX_IMAGE_BUFFER_PERCENT / 2
@@ -119,7 +117,7 @@ class CV_Fiducial:
             return list(pose)
 
     def cv_fiducial_setupSandbox(self, image_frame, frame_supplier=None):
-        """Chờ và phát hiện đủ 4 marker góc sandbox, sau đó tính ảnh phẳng ban đầu."""
+
         try:
             last_missing = None
             while True:
@@ -156,7 +154,7 @@ class CV_Fiducial:
             raise
 
     def _cv_fiducial_detectSandboxCorners(self, image_frame):
-        """Nhận diện các marker góc sandbox trên ảnh gốc."""
+
         try:
             if constants.CV_DEBUG:
                 image_frame_annotated = image_frame.copy()
@@ -185,7 +183,8 @@ class CV_Fiducial:
                             marker_corner,
                             constants.FIDUCIAL_WIDTH_MM,
                             constants.CAMERA_MATRIX,
-                            constants.DISTORTION_COEFFICIENTS)
+                            (np.zeros_like(constants.DISTORTION_COEFFICIENTS)
+                             if constants.CV_USE_CAMERA_CALIBRATION else constants.DISTORTION_COEFFICIENTS))
 
                     self.cv_fiducial_cornerMarkerDict[fiducial_id] = (centerX, centerY, topLeft, topRight, bottomRight, bottomLeft, rvec, tvec)
 
@@ -207,26 +206,17 @@ class CV_Fiducial:
             print(traceback.format_exc())
             return False
 
-    def cv_fiducial_generatePalletLocations(self, sandbox_image):
-        """Nhận diện vị trí và hướng của tất cả marker trên ảnh sandbox đã làm phẳng."""
+    def cv_fiducial_generatePalletLocations(self, sandbox_image, captured_at=None):
+
         try:
             corner_list, fiducial_ids, _ = _aruco_detector.detectMarkers(sandbox_image)
 
             detected_ids = [] if fiducial_ids is None else fiducial_ids.flatten()
             detected_id_set = {int(fiducial_id) for fiducial_id in detected_ids}
-            tracked_ids = set(
-                constants.ROBOT_FIDUCIALS
-                + constants.PALLET_FIDUCIALS
-                + constants.GOAL_FIDUCIALS
-            )
-            for tracked_id in tracked_ids:
-                if tracked_id in detected_id_set:
-                    self._marker_missed_frames[tracked_id] = 0
-                elif tracked_id in self.cv_fiducial_markerDict:
-                    missed_frames = self._marker_missed_frames.get(tracked_id, 0) + 1
-                    self._marker_missed_frames[tracked_id] = missed_frames
-                    if missed_frames > constants.CV_MARKER_HOLD_FRAMES:
-                        self.cv_fiducial_markerDict.pop(tracked_id, None)
+            self._observed_ids = detected_id_set
+            captured_at = time.monotonic() if captured_at is None else captured_at
+            for fid in detected_id_set:
+                self._marker_seen_at[fid] = captured_at
 
             detected_robot_ids = sorted(
                 int(fiducial_id)
@@ -278,9 +268,18 @@ class CV_Fiducial:
         except Exception as e:
             print(f"[CV_Fiducial] LỖI: cv_fiducial_generatePalletLocations: {e}")
             print(traceback.format_exc())
+            self._observed_ids.clear()
+            raise
+
+    def fresh_marker_positions_mm(self):
+
+        return {
+            int(fid): self._warp_pixel_to_field_mm([value[0], value[1], value[6]])
+            for fid, value in self.cv_fiducial_markerDict.items()
+        }
 
     def _cv_fiducial_findCornerFiducialOrdering(self):
-        """Sắp xếp 4 marker góc theo thứ tự: top-left, top-right, bottom-left, bottom-right."""
+
         try:
             cornerFiducialIDs = constants.CORNER_FIDUCIALS
             unsortedCornerFiducialCenters = []
@@ -311,7 +310,7 @@ class CV_Fiducial:
             raise
 
     def cv_fiducial_flattenSandboxImage(self, image_frame, width=constants.CV_SANDBOX_WIDTH, height=constants.CV_SANDBOX_HEIGHT):
-        """Biến đổi phối cảnh ảnh sandbox từ góc nhìn camera thành góc nhìn từ trên xuống (nằm ngang chuẩn)."""
+
         try:
             field_width = int(self.sandbox_width_mm or width)
             field_height = int(self.sandbox_height_mm or height)
@@ -361,7 +360,7 @@ class CV_Fiducial:
             raise
 
     def cv_fiducial_getCornerPositions(self):
-        """Lấy danh sách vị trí 4 góc sân."""
+
         try:
             cornerFiducialIDs = constants.CORNER_FIDUCIALS
             foundCornerPositions = []
@@ -376,7 +375,7 @@ class CV_Fiducial:
             return []
 
     def cv_fiducial_getGoalPositions(self):
-        """Lấy danh sách vị trí các điểm đích."""
+
         try:
             goalFiducialIDs = constants.GOAL_FIDUCIALS
             foundGoalFiducialIDs = []
@@ -391,7 +390,7 @@ class CV_Fiducial:
             return []
 
     def cv_fiducial_getPalletPositions(self):
-        """Lấy danh sách vị trí các pallet theo pixel."""
+
         try:
             palletFiducialIDs = constants.PALLET_FIDUCIALS
             foundPalletFiducialIDs = []
@@ -406,7 +405,7 @@ class CV_Fiducial:
             return []
 
     def cv_fiducial_getRobotPositions(self):
-        """Lấy vị trí và ID các robot nhận diện được theo pixel."""
+
         try:
             robotFiducialIDs = constants.ROBOT_FIDUCIALS
             foundRobotFiducialPoses = []
@@ -423,7 +422,7 @@ class CV_Fiducial:
             return [], []
 
     def cv_fiducial_getRobotPositionsMM(self):
-        """Lấy vị trí và ID các robot theo mm thực tế."""
+
         try:
             positions, marker_ids = self.cv_fiducial_getRobotPositions()
             return [self._warp_pixel_to_field_mm(pose) for pose in positions], marker_ids
@@ -433,7 +432,7 @@ class CV_Fiducial:
             return [], []
 
     def cv_fiducial_getPalletPositionsMM(self):
-        """Lấy vị trí các pallet theo mm thực tế."""
+
         try:
             return [
                 self._warp_pixel_to_field_mm(pose)
@@ -445,7 +444,7 @@ class CV_Fiducial:
             return []
 
     def cv_fiducial_getGoalPositionsMM(self):
-        """Lấy vị trí các điểm đích theo mm thực tế."""
+
         try:
             return [
                 self._warp_pixel_to_field_mm(pose)

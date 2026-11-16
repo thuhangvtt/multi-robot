@@ -1,8 +1,3 @@
-/**
- * @file search_node.hpp
- * @brief Định nghĩa cấu trúc Node A* 4D và các bộ so sánh / băm.
- */
-
 #ifndef SEARCH_NODE_HPP
 #define SEARCH_NODE_HPP
 
@@ -29,7 +24,7 @@ public:
 
 struct OpenListNodeComparator
 {
-    /** So sánh mức ưu tiên f-value giữa 2 nút trong priority queue. */
+
     bool operator()(const Node *n1, const Node *n2) const
     {
         return (G_VALUE_WEIGHT * n1->g_value + H_VALUE_WEIGHT * n1->h_value)
@@ -39,7 +34,7 @@ struct OpenListNodeComparator
 
 struct ClosedListNodeComparator
 {
-    /** So sánh bằng giữa 2 nút trong tập hợp closed list. */
+
     bool operator()(const Node *n1, const Node *n2) const
     {
         return n1->x == n2->x
@@ -51,7 +46,7 @@ struct ClosedListNodeComparator
 
 struct NodeHasher
 {
-    /** Hàm băm tọa độ 4D không va chạm. */
+
     size_t operator()(const Node *n) const
     {
         size_t seed = 0;
@@ -68,4 +63,4 @@ struct NodeHasher
     }
 };
 
-#endif // SEARCH_NODE_HPP
+#endif

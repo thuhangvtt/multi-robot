@@ -1,0 +1,47 @@
+{
+  "robot_id": 1,
+  "source": "User measurements and manual IMU checks in conversation",
+  "wheel_diameter_left_mm": 32,
+  "wheel_diameter_right_mm": 32,
+  "axle_track_mm": 82,
+  "body_length_mm": 105,
+  "body_width_mm": 101,
+  "loaded_length_mm": null,
+  "loaded_width_mm": null,
+  "marker_to_front_mm": 85,
+  "marker_to_rear_mm": 20,
+  "marker_to_axle_forward_mm": 0,
+  "marker_to_axle_right_mm": null,
+  "unloaded_wheel_start_duty": {
+    "left": 41,
+    "right": 45,
+    "note": "Not yet a loaded start threshold or a complete duty-speed curve. Earlier right-wheel report was 46; this table says 45."
+  },
+  "straight_run": {
+    "distance_mm": 1400,
+    "duration_s": 5,
+    "average_body_speed_mm_s": 280,
+    "raw_left_duty": 61,
+    "raw_right_duty": 63,
+    "duty_source": "User confirmed raw left=61 and right=63 for this measurement",
+    "payload_condition": null,
+    "battery_voltage_v": null,
+    "steady_state_speed": false
+  },
+  "imu_manual_check": {
+    "left_turn_yaw_deg": 91.3,
+    "return_yaw_deg": 0.12,
+    "right_turn_yaw_deg": -89.33,
+    "left_turn_sign": "positive",
+    "gyro_scale_changed": false,
+    "powered_stabilizer_validated": false
+  },
+  "pickup_geometry": {
+    "robot_marker_to_pallet_marker_at_pickup_mm": null,
+    "lower_a_deg": null,
+    "lower_b_deg": null,
+    "lift_a_deg": null,
+    "lift_b_deg": null,
+    "note": "Pallet not finished; test the existing system with one robot first, no separate approach program."
+  }
+}

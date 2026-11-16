@@ -1,293 +1,169 @@
-import sys
+import json
+import math
 import os
+from pathlib import Path
+import sys
 import time
-import atexit
-import traceback
+
+BASE_DIR = Path(__file__).resolve().parent
+for folder in ('config', 'vision', 'planner', 'control', 'comms'):
+    sys.path.insert(0, str(BASE_DIR / folder))
+
 import cv2 as cv
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(BASE_DIR, 'config'))
-sys.path.insert(0, os.path.join(BASE_DIR, 'vision'))
-sys.path.insert(0, os.path.join(BASE_DIR, 'planner'))
-sys.path.insert(0, os.path.join(BASE_DIR, 'control'))
-sys.path.insert(0, os.path.join(BASE_DIR, 'comms'))
-
-if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
-    try:
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    except Exception:
-        pass
-
 import constants
 from cv_main import CV
 from cv_visualize import CVVisualizer
 from planner_service import PlannerService
 from controller_main import ControllerMain
 from robot_network import RobotNetwork
-
-REPLAN_TIMEOUT_S      = 30.0
-REPLAN_COOLDOWN_S     = 10.0
-CONTROLLER_TICK_EVERY = 1
-
-
-class SystemState:
-    INIT       = "INIT"
-    PLANNING   = "PLANNING"
-    RUNNING    = "RUNNING"
-    CYCLE_DONE = "CYCLE_DONE"
-    ERROR      = "ERROR"
-
-
-def main():
-    """Vòng lặp chính điều phối toàn bộ hệ thống: Vision -> Planner -> Controller -> Comms."""
-    print("=" * 58)
-    print("  PARROT Multi-Robot System — Main Loop")
-    print("=" * 58)
-
-    try:
-        network    = RobotNetwork(debug=False)
-        cv_system  = CV()
-        atexit.register(cv_system.stop_camera)
-        visualizer = CVVisualizer()
-        planner    = PlannerService(num_robots=len(constants.ROBOT_HARDWARE_NUMBERS))
-        controller = ControllerMain(network)
-    except Exception as e:
-        print(f"[Main] FATAL: Khởi tạo hệ thống thất bại: {e}")
-        print(traceback.format_exc())
-        sys.exit(1)
-
-    if not planner.is_available:
-        print("[Main] FATAL: planner_core chưa được biên dịch.")
-        print("       Chạy: cd server/planner && cmake -B build && cmake --build build --config Release")
-        sys.exit(1)
-
-    try:
-        cv_system.start_camera(constants.WEBCAM_ID)
-        print("[Main] Dang tim ArUco corner markers de canh chinh sandbox...")
-        cv_system.cv_InitComputerVision()
-    except Exception as e:
-        print(f"[Main] FATAL: Khởi tạo camera/vision thất bại: {e}")
-        print(traceback.format_exc())
-        cv_system.stop_camera()
-        sys.exit(1)
-
-    print("\n[Main] Kiem tra ket noi robot...")
-    try:
-        online = network.ping_all()
-        for hw_id, is_online in online.items():
-            status = "ONLINE" if is_online else "OFFLINE"
-            print(f"  Robot hw_id={hw_id}: {status}")
-    except Exception as e:
-        print(f"[Main] WARNING: Ping robot thất bại: {e}")
-        print(traceback.format_exc())
-
-    state         = SystemState.INIT
-    last_replan_t = 0.0
-    cycle_count   = 0
-
-    print("\n[Main] Bat dau vong lap chinh. Nhan 'q' hoac ESC de dung.\n")
-
-    try:
-        while True:
-            loop_start = time.time()
-
-            try:
-                cv_system.cv_runLocalizer()
-                visualizer.visualize(cv_system)
-            except Exception as e:
-                print(f"[Main] LỖI: Vision/Visualizer: {e}")
-                print(traceback.format_exc())
-                time.sleep(0.5)
-                continue
-
-            key = cv.waitKey(1) & 0xFF
-            if key == ord('q') or key == 27:
-                print("\n[Main] Người dùng yêu cầu dừng.")
-                break
-            if key == ord('e'):
-                print("\n[Main] EMERGENCY STOP!")
-                controller.emergency_stop()
-                state = SystemState.ERROR
-                break
-
-            now = time.time()
-
-            if state == SystemState.INIT or state == SystemState.CYCLE_DONE:
-                try:
-                    pallet_poses_mm = cv_system.cv_GetPalletPositionsMM()
-                    goal_poses      = cv_system.cv_GetGoalPositionsMM()
-                except Exception as e:
-                    print(f"[Main] LỖI: Lấy vị trí pallet/goal thất bại: {e}")
-                    print(traceback.format_exc())
-                    time.sleep(0.5)
-                    continue
-
-                if not pallet_poses_mm:
-                    print("[Main] Chưa thấy pallet, chờ thêm...", end='\r')
-                    time.sleep(0.5)
-                    continue
-
-                print(f"\n[Main] Chu kỳ {cycle_count + 1}: bắt đầu lập kế hoạch ({len(pallet_poses_mm)} pallet(s))...")
-                state = SystemState.PLANNING
-
-            if state == SystemState.PLANNING:
-                if now - last_replan_t < REPLAN_COOLDOWN_S and last_replan_t > 0:
-                    remaining = REPLAN_COOLDOWN_S - (now - last_replan_t)
-                    print(f"[Main] Cooldown replan: con {remaining:.1f}s...", end='\r')
-                    time.sleep(0.2)
-                    continue
-
-                try:
-                    robot_poses_mm, robot_fid_ids = cv_system.cv_GetRobotPositionsMM()
-                    pallet_poses_mm = cv_system.cv_GetPalletPositionsMM()
-                    goal_poses_mm   = _get_goal_poses_mm(cv_system)
-                    all_x = [p[0] for p in robot_poses_mm + pallet_poses_mm + goal_poses_mm] + [constants.CV_SANDBOX_WIDTH]
-                    all_y = [p[1] for p in robot_poses_mm + pallet_poses_mm + goal_poses_mm] + [constants.CV_SANDBOX_HEIGHT]
-                    map_size = [int(max(all_x) + 200), int(max(all_y) + 200)]
-                except Exception as e:
-                    print(f"[Main] LỖI: Lấy dữ liệu vision thất bại: {e}")
-                    print(traceback.format_exc())
-                    time.sleep(0.5)
-                    continue
-
-                if not robot_poses_mm:
-                    print("[Main] Không thấy robot nào trên camera! Chờ...", end='\r')
-                    time.sleep(0.5)
-                    continue
-
-                if len(pallet_poses_mm) == 0:
-                    print("[Main] Hết pallet — chu kỳ hoàn thành!")
-                    state = SystemState.CYCLE_DONE
-                    cycle_count += 1
-                    continue
-
-                n_tasks = min(len(pallet_poses_mm), len(goal_poses_mm))
-                if n_tasks == 0:
-                    print("[Main] Không có goal position! Kiểm tra lại marker.", end='\r')
-                    time.sleep(1.0)
-                    continue
-
-                use_pallets = pallet_poses_mm[:n_tasks]
-                use_goals   = goal_poses_mm[:n_tasks]
-
-                print(f"[Main] Đang lập kế hoạch cho {len(robot_poses_mm)} robot(s), {n_tasks} task(s)...")
-                t0 = time.time()
-
-                try:
-                    paths = planner.plan_trajectories(
-                        map_size    = [int(map_size[0]), int(map_size[1])],
-                        robot_poses = robot_poses_mm,
-                        pallet_poses = use_pallets,
-                        goal_poses  = use_goals,
-                    )
-                except Exception as e:
-                    print(f"[Main] LỖI: Planner thất bại: {e}")
-                    print(traceback.format_exc())
-                    state = SystemState.ERROR
-                    time.sleep(2.0)
-                    continue
-
-                t_plan = time.time() - t0
-                n_planned = sum(1 for p in paths if p)
-                print(f"[Main] Kế hoạch xong: {n_planned}/{len(paths)} robot có quỹ đạo ({t_plan*1000:.0f} ms)")
-
-                try:
-                    hw_ids = _fid_ids_to_hw_ids(robot_fid_ids)
-                    controller.load_paths(paths, hw_ids)
-                    visualizer.set_paths(paths, robot_fid_ids)  # Vẽ planned path lên màn hình
-                except Exception as e:
-                    print(f"[Main] LỖI: Tải đường đi thất bại: {e}")
-                    print(traceback.format_exc())
-                    state = SystemState.ERROR
-                    continue
-
-                last_replan_t = now
-                state = SystemState.RUNNING
-
-            if state == SystemState.RUNNING:
-                try:
-                    controller.run_one_tick(cv_system)
-
-                    status = controller.get_status()
-                    n_done = sum(1 for s in status.values() if s["done"])
-                    n_total = len(status)
-                    print(f"[Main] Running: {n_done}/{n_total} robot done | net_cmds={network.get_stats()} ", end='\r')
-
-                    if controller.all_done():
-                        print(f"\n[Main] Tất cả robot hoàn thành chu kỳ {cycle_count + 1}!")
-                        cycle_count += 1
-                        state = SystemState.CYCLE_DONE
-
-                    elif now - last_replan_t > REPLAN_TIMEOUT_S:
-                        print(f"\n[Main] Timeout {REPLAN_TIMEOUT_S}s — replan...")
-                        network.stop_all()
-                        state = SystemState.PLANNING
-                except Exception as e:
-                    print(f"[Main] LỖI: Controller tick thất bại: {e}")
-                    print(traceback.format_exc())
-                    time.sleep(0.5)
-
-            elapsed = time.time() - loop_start
-            sleep_t = max(0.0, 0.033 - elapsed)
-            if sleep_t > 0:
-                time.sleep(sleep_t)
-
-    except KeyboardInterrupt:
-        print("\n[Main] Dừng bởi Ctrl+C.")
-
-    finally:
-        print("[Main] Dừng tất cả robot...")
-        try:
-            network.stop_all(blocking=True)
-        except Exception as e:
-            print(f"[Main] WARNING: stop_all thất bại: {e}")
-            print(traceback.format_exc())
-        try:
-            cv_system.stop_camera()
-        except Exception as e:
-            print(f"[Main] WARNING: stop_camera thất bại: {e}")
-            print(traceback.format_exc())
-        cv.destroyAllWindows()
-
-        try:
-            stats = network.get_stats()
-            print(f"[Main] Thống kê mạng: {stats}")
-        except Exception:
-            pass
-        print(f"[Main] Tổng số chu kỳ hoàn thành: {cycle_count}")
-        print("[Main] Hệ thống đã tắt.")
-
-
-def _get_goal_poses_mm(cv_system):
-    """Lấy danh sách goal pose theo đơn vị mm."""
-    try:
-        return cv_system.cv_GetGoalPositionsMM()
-    except Exception as e:
-        print(f"[Main] LỖI: _get_goal_poses_mm: {e}")
-        print(traceback.format_exc())
-        return []
-
+from task_registry import TaskRegistry
 
 def _fid_ids_to_hw_ids(fid_ids):
-    """Chuyển danh sách fiducial ID thành hardware ID theo cấu hình constants."""
+    mapping = dict(zip(constants.ROBOT_FIDUCIALS, constants.ROBOT_HARDWARE_NUMBERS))
+    if len(mapping) != len(constants.ROBOT_HARDWARE_NUMBERS):
+        raise ValueError('Invalid hardware/fiducial mapping')
+    return [mapping[fid] for fid in fid_ids]
+
+def _get_pallet_dock_pose(pallet_pose):
+
+    px, py, p_theta = pallet_pose
+    offset = getattr(constants, 'CV_PALLET_OFFSET', 0.0)
+    angle_offset = getattr(constants, 'CV_PALLET_APPROACH_ANGLE_OFFSET', 0.0)
+    approach_theta = (p_theta + angle_offset) % (2 * math.pi)
+    dock_x = px - offset * math.cos(approach_theta)
+    dock_y = py + offset * math.sin(approach_theta)
+    return [dock_x, dock_y, approach_theta]
+
+def main():
+
+    registry = TaskRegistry(None, constants.PALLET_FIDUCIALS, constants.GOAL_FIDUCIALS)
+    network = RobotNetwork(debug=False)
+    vision = CV()
+    controller = ControllerMain(network)
+    visualizer = CVVisualizer()
+    log_file = None
+    active = []
+    state = 'PLANNING'
+    plan_id = 0
+    known_robots = set()
+    last_wait_message = 0.0
     try:
-        fid_to_hw = {
-            fid: hw
-            for fid, hw in zip(constants.ROBOT_FIDUCIALS, constants.ROBOT_HARDWARE_NUMBERS)
-        }
-        result = []
-        for fid in fid_ids:
-            hw = fid_to_hw.get(fid)
-            if hw is None:
-                print(f"[Main] WARNING: fiducial ID {fid} không có trong bảng ánh xạ!")
-                hw = fid
-            result.append(hw)
-        return result
-    except Exception as e:
-        print(f"[Main] LỖI: _fid_ids_to_hw_ids: {e}")
-        print(traceback.format_exc())
-        return list(fid_ids)
+        planner = PlannerService(num_robots=len(constants.ROBOT_HARDWARE_NUMBERS))
+        if not planner.is_available:
+            raise RuntimeError('Build planner_core before starting')
+        vision.start_camera(constants.WEBCAM_ID)
+        vision.cv_InitComputerVision()
+        runtime = BASE_DIR / 'runtime'
+        runtime.mkdir(exist_ok=True)
+        log_file = (runtime / f'run-{time.time_ns()}.jsonl').open('w', encoding='utf-8')
+        print('q/ESC: stop; e: stop.')
+        while True:
+            fresh_frame = vision.cv_runLocalizer()
+            vision.assert_fresh()
+            visualizer.visualize(vision)
+            key = cv.waitKey(1) & 0xff
+            if key in (ord('q'), ord('e'), 27):
+                break
+            if not fresh_frame:
+                time.sleep(0.005)
+                continue
+            network.check_health()
+            markers = vision.cv_GetMarkerPositionsMM()
+            robots = [fid for fid in constants.ROBOT_FIDUCIALS if fid in markers]
+            if known_robots:
+                vision.assert_fresh(known_robots)
+                if state == 'RUNNING' and set(robots) - known_robots:
+                    raise RuntimeError('New robot entered an executing plan; stop before replanning')
+            if state == 'PLANNING':
+                tasks = registry.pending(markers)
+                if registry.all_delivered():
+                    print('All tasks observed in this run completed by controller; finished.')
+                    break
+                if not tasks or not robots:
+                    if time.monotonic() - last_wait_message >= 2.0:
+                        visible_pallets = [fid for fid in constants.PALLET_FIDUCIALS if fid in markers]
+                        visible_goals = [fid for fid in constants.GOAL_FIDUCIALS if fid in markers]
+                        used_goals = [t['goal_id'] for t in registry.tasks.values() if t['state'] != 'PENDING']
+                        print(f"[WAIT PLANNING] visible robot IDs={robots}; "
+                              f"pallet IDs={visible_pallets}; goal IDs={visible_goals}; "
+                              f"occupied/reserved goals={used_goals}; "
+                              f"available pairs={[(t['pallet_id'], t['goal_id']) for t in tasks]}")
+                        last_wait_message = time.monotonic()
+                    time.sleep(0.03)
+                    continue
+                known_robots.update(robots)
+                vision.assert_fresh(robots)
+                hw_ids = _fid_ids_to_hw_ids(robots)
+                print(f"[PLANNING] PARROT visible-order pairs: "
+                      f"{[(t['pallet_id'], t['goal_id']) for t in tasks]}; robot IDs={robots}")
+                poses = [markers[fid] for fid in robots]
+                pallets = [_get_pallet_dock_pose(markers[t['pallet_id']]) for t in tasks]
+                goals = [markers[t['goal_id']] for t in tasks]
+                width, height = vision.cv_GetSandboxSize()
+                for pose in poses + pallets + goals:
+                    if not (0 <= pose[0] < width and 0 <= pose[1] < height):
+                        raise ValueError(f'Pose outside calibrated field: {pose}')
+                task_pallet_ids = {t['pallet_id'] for t in tasks}
+                obstacles = [markers[fid] for fid in constants.PALLET_FIDUCIALS
+                             if fid in markers and fid not in task_pallet_ids]
+                for delivered in registry.tasks.values():
+                    if delivered['state'] == 'DELIVERED' and delivered['pallet_id'] not in markers:
+                        if 'delivery_pose' not in delivered:
+                            raise RuntimeError('Missing completed pallet position in current run')
+                        obstacles.append(delivered['delivery_pose'])
 
+                paths = planner.plan_trajectories([int(width), int(height)], poses, pallets, goals,
+                                                  obstacle_poses=obstacles)
 
-if __name__ == "__main__":
+                vision.cv_runLocalizer()
+                vision.assert_fresh(robots)
+                after = vision.cv_GetMarkerPositionsMM()
+                if any(math.hypot(after[fid][0]-pose[0], after[fid][1]-pose[1]) > 35
+                       or abs(math.atan2(math.sin(after[fid][2]-pose[2]), math.cos(after[fid][2]-pose[2]))) > 0.3
+                       for fid, pose in zip(robots, poses)):
+                    raise RuntimeError('Robot moved during planning; discard plan')
+                for task in tasks:
+                    task['delivery_pose'] = markers[task['goal_id']]
+                active = registry.assign(tasks, planner.last_assignments, hw_ids)
+                if not active or not any(paths):
+                    raise RuntimeError('NO_PATH: no executable task; not a completed round')
+                for task in active:
+                    print(f"[ASSIGN] robot hw={task['robot_id']}: "
+                          f"pallet {task['pallet_id']} -> goal {task['goal_id']}")
+                plan_id += 1
+                start = time.monotonic()
+                controller.load_paths(paths, hw_ids, start_time=start)
+                visualizer.reset_trails()
+                visualizer.set_paths(paths, robots)
+                visualizer.visualize(vision)
+                cv.waitKey(1)
+                state = 'RUNNING'
+            if state == 'RUNNING':
+                controller.run_one_tick(vision)
+                visualizer.set_wheel_speeds(controller.get_wheel_speeds())
+                for hw, path in zip(hw_ids, paths):
+                    if not path and not network.stop_robot(hw):
+                        raise RuntimeError('Idle robot heartbeat rejected')
+                if controller.all_done():
+                    registry.complete_round(active)
+                    state = 'PLANNING'
+                    print('Controller round completed; checking camera for remaining tasks.')
+            log_file.write(json.dumps(dict(at=time.monotonic(), frame_id=vision._localized_frame_id,
+                                           plan_id=plan_id, state=state, markers=markers,
+                                           controllers=controller.get_status(), network=network.get_stats()))+'\n')
+            log_file.flush()
+    except KeyboardInterrupt:
+        print('Stopped by operator')
+    except Exception as exc:
+        print(f'[FAULT] {exc}')
+        raise
+    finally:
+        network.stop_all(blocking=True)
+        network.close()
+        vision.stop_camera()
+        cv.destroyAllWindows()
+        if log_file:
+            log_file.close()
+
+if __name__ == '__main__':
     main()
