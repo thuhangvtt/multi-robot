@@ -34,6 +34,18 @@ void robotApplyCommand(int leftSpeed, int rightSpeed, int palletAction) {
   robotPulseLedBlue();
 }
 
+void robotApplyVelocity(float linearMmPerSec, float angularDegPerSec, int palletAction) {
+  if (drv8833IsFault()) { motorStop(); return; }
+  motorSetVelocity(linearMmPerSec, angularDegPerSec);
+  servoSetPalletAction(palletAction);
+
+  lastCommandTime = millis();
+  hasCommand = true;
+  isTimedOut = false;
+  robotSetLedRed(false);
+  robotPulseLedBlue();
+}
+
 void robotStop() {
   motorStop();
 }
@@ -73,8 +85,7 @@ void robotControlTask() {
 
   if (hasCommand && !isTimedOut && (now - lastCommandTime > COMMAND_TIMEOUT_MS)) {
     isTimedOut = true;
-    const bool moving = (motorGetLeftSpeed() != 0 && motorGetLeftSpeed() != 90) ||
-                        (motorGetRightSpeed() != 0 && motorGetRightSpeed() != 90);
+    const bool moving = motorIsMoving();
     if (moving) robotEmergencyStop(); else motorStop();
     robotSetLedRed(true);
     Serial.println("[Watchdog] Command timeout! Stopped motors.");

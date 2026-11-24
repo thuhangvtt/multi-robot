@@ -9,6 +9,8 @@ void robotControlTask();
 
 void robotApplyCommand(int leftSpeed, int rightSpeed, int palletAction);
 
+void robotApplyVelocity(float linearMmPerSec, float angularDegPerSec, int palletAction);
+
 void robotStop();
 void robotEmergencyStop();
 void robotResetEmergencyStop();

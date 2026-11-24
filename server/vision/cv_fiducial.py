@@ -9,13 +9,13 @@ from constants import debugPrint
 _aruco_dict = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_50)
 _aruco_params = cv.aruco.DetectorParameters()
 _aruco_params.adaptiveThreshWinSizeMin = 3
-_aruco_params.adaptiveThreshWinSizeMax = 53
-_aruco_params.adaptiveThreshWinSizeStep = 3
+_aruco_params.adaptiveThreshWinSizeMax = 23
+_aruco_params.adaptiveThreshWinSizeStep = 10
 _aruco_params.minMarkerPerimeterRate = 0.01
 _aruco_params.maxMarkerPerimeterRate = 4.0
-_aruco_params.polygonalApproxAccuracyRate = 0.12
-_aruco_params.perspectiveRemoveIgnoredMarginPerCell = 0.15
-_aruco_params.cornerRefinementMethod = cv.aruco.CORNER_REFINE_CONTOUR
+_aruco_params.polygonalApproxAccuracyRate = 0.08
+_aruco_params.perspectiveRemoveIgnoredMarginPerCell = 0.13
+_aruco_params.cornerRefinementMethod = cv.aruco.CORNER_REFINE_SUBPIX
 _aruco_detector = cv.aruco.ArucoDetector(_aruco_dict, _aruco_params)
 
 def _estimate_pose_single_marker(marker_corner, marker_size, camera_matrix, dist_coeffs):
@@ -85,6 +85,11 @@ class CV_Fiducial:
         self._marker_missed_frames = {}
         self._marker_seen_at = {}
         self._observed_ids = set()
+        self._homography_M = None
+        self._sandbox_pixel_size = None
+        self._viz_homography_M = None
+        self._viz_scale = None
+        self._viz_size = None
 
     def _apply_center_offset(self, fiducial_id, center_x, center_y, orientation):
 
@@ -206,70 +211,131 @@ class CV_Fiducial:
             print(traceback.format_exc())
             return False
 
+    def _update_markers_from_sandbox_corners(self, sandbox_corner_list, fiducial_ids, captured_at=None):
+        """Update marker dictionary and missed-frame counters from sandbox-space corners."""
+        detected_ids = [] if fiducial_ids is None else [int(fid) for fid in np.asarray(fiducial_ids).flatten()]
+        detected_id_set = set(detected_ids)
+        self._observed_ids = detected_id_set
+        captured_at = time.monotonic() if captured_at is None else captured_at
+
+        for fid in detected_id_set:
+            self._marker_seen_at[fid] = captured_at
+            self._marker_missed_frames[fid] = 0
+        for fid in list(self.cv_fiducial_markerDict.keys()):
+            fid_int = int(fid)
+            if fid_int not in detected_id_set:
+                self._marker_missed_frames[fid_int] = self._marker_missed_frames.get(fid_int, 0) + 1
+
+        detected_robot_ids = sorted(
+            fid for fid in detected_ids if fid in constants.ROBOT_FIDUCIALS
+        )
+        if detected_robot_ids != self._last_robot_ids_logged:
+            missing_robot_ids = [
+                fid for fid in constants.ROBOT_FIDUCIALS if fid not in detected_robot_ids
+            ]
+            print(f"[CV] Detected robot IDs: {detected_robot_ids or 'none'}")
+            print(f"[CV] Missing robot IDs: {missing_robot_ids}")
+            self._last_robot_ids_logged = detected_robot_ids
+
+        if not detected_ids or not sandbox_corner_list:
+            return
+
+        for (corners_raw, fiducial_id) in zip(sandbox_corner_list, detected_ids):
+            corners = np.asarray(corners_raw, dtype=np.float64).reshape((4, 2))
+            (topLeft_f, topRight_f, bottomRight_f, bottomLeft_f) = corners
+            topRight = (int(round(topRight_f[0])), int(round(topRight_f[1])))
+            bottomRight = (int(round(bottomRight_f[0])), int(round(bottomRight_f[1])))
+            bottomLeft = (int(round(bottomLeft_f[0])), int(round(bottomLeft_f[1])))
+            topLeft = (int(round(topLeft_f[0])), int(round(topLeft_f[1])))
+
+            marker_center = _marker_center_from_corners(corners)
+            centerX = float(marker_center[0])
+            centerY = float(marker_center[1])
+
+            orientation = math.atan2(
+                float(topLeft_f[1] - bottomLeft_f[1]),
+                float(topLeft_f[0] - bottomLeft_f[0]),
+            )
+            orientation += math.pi / 2
+            orientation = math.atan2(math.sin(orientation), math.cos(orientation))
+            orientation = orientation * -1
+
+            if fiducial_id in constants.PALLET_FIDUCIALS:
+                centerX = centerX - (constants.CV_PALLET_CENTER_OFFSET * math.cos(orientation))
+                centerY = centerY + (constants.CV_PALLET_CENTER_OFFSET * math.sin(orientation))
+
+            if fiducial_id in constants.GOAL_FIDUCIALS:
+                centerX = centerX - (constants.CV_GOAL_CENTER_OFFSET * math.cos(orientation))
+                centerY = centerY + (constants.CV_GOAL_CENTER_OFFSET * math.sin(orientation))
+
+            centerX, centerY = self._apply_center_offset(
+                fiducial_id, centerX, centerY, orientation
+            )
+
+            self.cv_fiducial_markerDict[fiducial_id] = (
+                centerX, centerY, topLeft, topRight, bottomRight, bottomLeft, orientation
+            )
+
     def cv_fiducial_generatePalletLocations(self, sandbox_image, captured_at=None):
 
         try:
             corner_list, fiducial_ids, _ = _aruco_detector.detectMarkers(sandbox_image)
-
-            detected_ids = [] if fiducial_ids is None else fiducial_ids.flatten()
-            detected_id_set = {int(fiducial_id) for fiducial_id in detected_ids}
-            self._observed_ids = detected_id_set
-            captured_at = time.monotonic() if captured_at is None else captured_at
-            for fid in detected_id_set:
-                self._marker_seen_at[fid] = captured_at
-
-            detected_robot_ids = sorted(
-                int(fiducial_id)
-                for fiducial_id in detected_ids
-                if int(fiducial_id) in constants.ROBOT_FIDUCIALS
+            sandbox_corners = (
+                [np.asarray(c).reshape((4, 2)) for c in corner_list]
+                if corner_list is not None else []
             )
-            if detected_robot_ids != self._last_robot_ids_logged:
-                missing_robot_ids = [
-                    fiducial_id
-                    for fiducial_id in constants.ROBOT_FIDUCIALS
-                    if fiducial_id not in detected_robot_ids
-                ]
-                print(f"[CV] Detected robot IDs: {detected_robot_ids or 'none'}")
-                print(f"[CV] Missing robot IDs: {missing_robot_ids}")
-                self._last_robot_ids_logged = detected_robot_ids
-
-            if fiducial_ids is not None and len(corner_list) > 0:
-                fiducial_ids = fiducial_ids.flatten()
-                for (marker_corner, fiducial_id) in zip(corner_list, fiducial_ids):
-                    corners = marker_corner.reshape((4, 2))
-                    (topLeft, topRight, bottomRight, bottomLeft) = corners
-                    topRight = (int(topRight[0]), int(topRight[1]))
-                    bottomRight = (int(bottomRight[0]), int(bottomRight[1]))
-                    bottomLeft = (int(bottomLeft[0]), int(bottomLeft[1]))
-                    topLeft = (int(topLeft[0]), int(topLeft[1]))
-
-                    marker_center = _marker_center_from_corners(corners)
-                    centerX = int(round(float(marker_center[0])))
-                    centerY = int(round(float(marker_center[1])))
-
-                    orientation = math.atan2(topLeft[1] - bottomLeft[1], topLeft[0] - bottomLeft[0])
-                    orientation += math.pi / 2
-                    orientation = math.atan2(math.sin(orientation), math.cos(orientation))
-                    orientation = orientation * -1
-
-                    if fiducial_id in constants.PALLET_FIDUCIALS:
-                        centerX = centerX - (constants.CV_PALLET_CENTER_OFFSET * math.cos(orientation))
-                        centerY = centerY + (constants.CV_PALLET_CENTER_OFFSET * math.sin(orientation))
-
-                    if fiducial_id in constants.GOAL_FIDUCIALS:
-                        centerX = centerX - (constants.CV_GOAL_CENTER_OFFSET * math.cos(orientation))
-                        centerY = centerY + (constants.CV_GOAL_CENTER_OFFSET * math.sin(orientation))
-
-                    centerX, centerY = self._apply_center_offset(
-                        fiducial_id, centerX, centerY, orientation
-                    )
-
-                    self.cv_fiducial_markerDict[fiducial_id] = (centerX, centerY, topLeft, topRight, bottomRight, bottomLeft, orientation)
+            self._update_markers_from_sandbox_corners(sandbox_corners, fiducial_ids, captured_at)
         except Exception as e:
             print(f"[CV_Fiducial] LỖI: cv_fiducial_generatePalletLocations: {e}")
             print(traceback.format_exc())
             self._observed_ids.clear()
             raise
+
+    def cv_fiducial_localizeFromRaw(self, raw_undistorted_frame, captured_at=None):
+        """Detect markers directly in camera resolution and project corners with cached homography."""
+        if self._homography_M is None:
+            raise RuntimeError("Sandbox homography has not been initialized")
+        try:
+            detect_img = (
+                cv.cvtColor(raw_undistorted_frame, cv.COLOR_BGR2GRAY)
+                if raw_undistorted_frame.ndim == 3 else raw_undistorted_frame
+            )
+            corner_list, fiducial_ids, _ = _aruco_detector.detectMarkers(detect_img)
+            sandbox_corners = []
+            if corner_list is not None and len(corner_list) > 0:
+                for marker_corner in corner_list:
+                    pts = marker_corner.reshape((-1, 1, 2)).astype(np.float32)
+                    warped = cv.perspectiveTransform(pts, self._homography_M).reshape((4, 2))
+                    sandbox_corners.append(warped)
+            self._update_markers_from_sandbox_corners(sandbox_corners, fiducial_ids, captured_at)
+        except Exception as e:
+            print(f"[CV_Fiducial] LỖI: cv_fiducial_localizeFromRaw: {e}")
+            print(traceback.format_exc())
+            self._observed_ids.clear()
+            raise
+
+    def marker_missed_frames(self, fid):
+        fid_int = int(fid)
+        if fid_int not in self.cv_fiducial_markerDict:
+            return 999999
+        return int(self._marker_missed_frames.get(fid_int, 999999))
+
+    def marker_age(self, fid, now=None):
+        seen_at = self._marker_seen_at.get(int(fid))
+        if seen_at is None:
+            return float('inf')
+        now = time.monotonic() if now is None else now
+        return max(0.0, float(now) - float(seen_at))
+
+    def is_marker_fresh(self, fid, max_missed_frames=2, max_age_s=None, now=None):
+        fid_int = int(fid)
+        if fid_int not in self.cv_fiducial_markerDict:
+            return False
+        if self.marker_missed_frames(fid_int) >= max_missed_frames:
+            return False
+        if max_age_s is not None and self.marker_age(fid_int, now=now) > max_age_s:
+            return False
+        return True
 
     def fresh_marker_positions_mm(self):
 
@@ -335,6 +401,11 @@ class CV_Fiducial:
             ], dtype="float32")
 
             M = cv.getPerspectiveTransform(fiducial_corners, destination_corners)
+            self._homography_M = np.asarray(M, dtype=np.float64)
+            self._sandbox_pixel_size = (int(field_width + buffer_x * 2), int(field_height + buffer_y * 2))
+            self._viz_homography_M = None
+            self._viz_scale = None
+            self._viz_size = None
 
             corner_ids = (top_left_id, top_right_id, bottom_right_id, bottom_left_id)
             self.cv_fiducial_warpedCornerMarkerDict = {}
@@ -352,12 +423,28 @@ class CV_Fiducial:
                     None,
                 )
 
-            sandbox_image = cv.warpPerspective(image_frame, M, (field_width + buffer_x * 2, field_height + buffer_y * 2))
+            sandbox_image = cv.warpPerspective(image_frame, M, self._sandbox_pixel_size)
             return sandbox_image
         except Exception as e:
             print(f"[CV_Fiducial] LỖI: cv_fiducial_flattenSandboxImage: {e}")
             print(traceback.format_exc())
             raise
+
+    def cv_fiducial_buildDisplayImage(self, image_frame, scale=None):
+        """Warp camera frame directly into scaled display resolution in one pass."""
+        if self._homography_M is None or self._sandbox_pixel_size is None:
+            return None
+        scale = float(constants.CV_VIZ_SCALE if scale is None else scale)
+        if self._viz_homography_M is None or self._viz_scale != scale:
+            scale_mat = np.array(
+                [[scale, 0.0, 0.0], [0.0, scale, 0.0], [0.0, 0.0, 1.0]],
+                dtype=np.float64,
+            )
+            self._viz_homography_M = scale_mat @ self._homography_M
+            full_w, full_h = self._sandbox_pixel_size
+            self._viz_size = (max(1, int(full_w * scale)), max(1, int(full_h * scale)))
+            self._viz_scale = scale
+        return cv.warpPerspective(image_frame, self._viz_homography_M, self._viz_size)
 
     def cv_fiducial_getCornerPositions(self):
 

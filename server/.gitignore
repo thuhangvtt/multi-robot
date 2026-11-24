@@ -18,10 +18,6 @@ planner/PLANNER_IMPLEMENTATION_PLAN.md
 # Runtime logs
 runtime/
 
-# Test & Debug temporary images
 .pytest_cache/
 .coverage
-vision/crop_*.jpg
-vision/*_zoom.png
-vision/pallet_user_img.jpg
-vision/test_vision_plan/results/
+

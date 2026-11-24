@@ -37,7 +37,7 @@ def _get_pallet_dock_pose(pallet_pose):
 def main():
 
     registry = TaskRegistry(None, constants.PALLET_FIDUCIALS, constants.GOAL_FIDUCIALS)
-    network = RobotNetwork(debug=False)
+    network = RobotNetwork(debug=False, reconnect_grace_s=getattr(constants, 'NET_RECONNECT_GRACE_S', 6.0))
     vision = CV()
     controller = ControllerMain(network)
     visualizer = CVVisualizer()
@@ -59,14 +59,17 @@ def main():
         print('q/ESC: stop; e: stop.')
         while True:
             fresh_frame = vision.cv_runLocalizer()
-            vision.assert_fresh()
-            visualizer.visualize(vision)
-            key = cv.waitKey(1) & 0xff
-            if key in (ord('q'), ord('e'), 27):
-                break
             if not fresh_frame:
-                time.sleep(0.005)
+                key = cv.waitKey(1) & 0xff
+                if key in (ord('q'), ord('e'), 27):
+                    break
+                if state == 'RUNNING' and vision.frame_age() > constants.CV_STALE_PAUSE_S:
+                    controller.hold_stale()
+                time.sleep(0.002)
                 continue
+            cap_at = vision.last_captured_at()
+            vis_lat_ms = round(max(0.0, time.monotonic() - cap_at) * 1000.0, 1) if cap_at is not None else None
+            vision.assert_fresh()
             network.check_health()
             markers = vision.cv_GetMarkerPositionsMM()
             robots = [fid for fid in constants.ROBOT_FIDUCIALS if fid in markers]
@@ -89,6 +92,10 @@ def main():
                               f"occupied/reserved goals={used_goals}; "
                               f"available pairs={[(t['pallet_id'], t['goal_id']) for t in tasks]}")
                         last_wait_message = time.monotonic()
+                    visualizer.visualize(vision)
+                    key = cv.waitKey(1) & 0xff
+                    if key in (ord('q'), ord('e'), 27):
+                        break
                     time.sleep(0.03)
                     continue
                 known_robots.update(robots)
@@ -135,11 +142,15 @@ def main():
                 controller.load_paths(paths, hw_ids, start_time=start)
                 visualizer.reset_trails()
                 visualizer.set_paths(paths, robots)
-                visualizer.visualize(vision)
-                cv.waitKey(1)
                 state = 'RUNNING'
+            ctrl_lat_ms = None
             if state == 'RUNNING':
-                controller.run_one_tick(vision)
+                live_pallet_poses = {
+                    t['robot_id']: _get_pallet_dock_pose(markers[t['pallet_id']])
+                    for t in active if t['pallet_id'] in markers
+                }
+                controller.run_one_tick(vision, live_pallet_poses=live_pallet_poses)
+                ctrl_lat_ms = round(max(0.0, time.monotonic() - cap_at) * 1000.0, 1) if cap_at is not None else None
                 visualizer.set_wheel_speeds(controller.get_wheel_speeds())
                 for hw, path in zip(hw_ids, paths):
                     if not path and not network.stop_robot(hw):
@@ -148,9 +159,16 @@ def main():
                     registry.complete_round(active)
                     state = 'PLANNING'
                     print('Controller round completed; checking camera for remaining tasks.')
+            visualizer.visualize(vision)
+            key = cv.waitKey(1) & 0xff
+            if key in (ord('q'), ord('e'), 27):
+                break
             log_file.write(json.dumps(dict(at=time.monotonic(), frame_id=vision._localized_frame_id,
-                                           plan_id=plan_id, state=state, markers=markers,
-                                           controllers=controller.get_status(), network=network.get_stats()))+'\n')
+                                           plan_id=plan_id, state=state,
+                                           vision_latency_ms=vis_lat_ms,
+                                           control_latency_ms=ctrl_lat_ms,
+                                           markers=markers, controllers=controller.get_status(),
+                                           network=network.get_stats()))+'\n')
             log_file.flush()
     except KeyboardInterrupt:
         print('Stopped by operator')

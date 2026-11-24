@@ -1,5 +1,6 @@
 import cv2 as cv
 import numpy as np
+import math
 import time
 import threading
 import traceback
@@ -22,6 +23,9 @@ class CV:
         self._captured_at = None
         self._localized_frame_id = -1
         self._localized_at = None
+        self._undistort_map1 = None
+        self._undistort_map2 = None
+        self._undistort_size = None
 
     def _open_camera_stream(self, candidates, max_retries=4):
 
@@ -117,11 +121,9 @@ class CV:
                 ret, frame = self._cap.read()
                 if ret and frame is not None:
                     with self._frame_lock:
-
-                        if self._cvImage is None or not np.array_equal(frame, self._cvImage):
-                            self._cvImage = frame
-                            self._frame_id += 1
-                            self._captured_at = time.monotonic()
+                        self._cvImage = frame
+                        self._frame_id += 1
+                        self._captured_at = time.monotonic()
                     consecutive_fails = 0
                 else:
                     consecutive_fails += 1
@@ -195,12 +197,10 @@ class CV:
 
             if self.latestImageRaw is None:
                 debugPrint("[CV] No image captured")
-                return
+                return False
 
-            self.latestSandboxImage = self.cv_fiducial.cv_fiducial_flattenSandboxImage(
-                self.latestImageRaw
-            )
-            self.cv_fiducial.cv_fiducial_generatePalletLocations(self.latestSandboxImage, captured_at)
+            self.cv_fiducial.cv_fiducial_localizeFromRaw(self.latestImageRaw, captured_at)
+            self.latestSandboxImage = None
             self._localized_frame_id = frame_id
             self._localized_at = captured_at
             return True
@@ -216,19 +216,49 @@ class CV:
             if not constants.CV_USE_CAMERA_CALIBRATION:
                 return frame
 
+            frame_size = (frame.shape[1], frame.shape[0])
             expected = constants.CV_CAMERA_CALIBRATION_SIZE
-            if expected is None or tuple(expected) != (frame.shape[1], frame.shape[0]):
+            if expected is None or tuple(expected) != frame_size:
                 raise RuntimeError("Set CV_CAMERA_CALIBRATION_SIZE to the original calibration resolution; stream must match")
 
-            return cv.undistort(
-                frame,
-                constants.CAMERA_MATRIX,
-                constants.DISTORTION_COEFFICIENTS,
-            )
+            if self._undistort_map1 is None or self._undistort_size != frame_size:
+                self._undistort_map1, self._undistort_map2 = cv.initUndistortRectifyMap(
+                    constants.CAMERA_MATRIX,
+                    constants.DISTORTION_COEFFICIENTS,
+                    None,
+                    constants.CAMERA_MATRIX,
+                    frame_size,
+                    cv.CV_16SC2,
+                )
+                self._undistort_size = frame_size
+
+            return cv.remap(frame, self._undistort_map1, self._undistort_map2, cv.INTER_LINEAR)
         except Exception as e:
             print(f"[CV] LỖI: _prepare_frame: {e}")
             print(traceback.format_exc())
             raise
+
+    def frame_age(self):
+        with self._frame_lock:
+            captured_at = self._captured_at
+        return float('inf') if captured_at is None else time.monotonic() - captured_at
+
+    def last_captured_at(self):
+        return self._localized_at
+
+    def marker_missed_frames(self, fid):
+        return self.cv_fiducial.marker_missed_frames(fid)
+
+    def marker_age(self, fid, now=None):
+        return self.cv_fiducial.marker_age(fid, now=now)
+
+    def is_marker_fresh(self, fid, max_missed_frames=2, max_age_s=None, now=None):
+        return self.cv_fiducial.is_marker_fresh(
+            fid,
+            max_missed_frames=max_missed_frames,
+            max_age_s=max_age_s,
+            now=now,
+        )
 
     def assert_fresh(self, fid_ids=()):
         now = time.monotonic()
@@ -243,8 +273,22 @@ class CV:
         self.assert_fresh()
         return self.cv_fiducial.fresh_marker_positions_mm()
 
-    def cv_getLatestSandboxImage(self):
+    def cv_getDisplayImage(self, scale=None):
+        scale = constants.CV_VIZ_SCALE if scale is None else float(scale)
+        if self.latestImageRaw is not None and self.cv_fiducial._homography_M is not None:
+            return self.cv_fiducial.cv_fiducial_buildDisplayImage(self.latestImageRaw, scale=scale)
+        sandbox = self.latestSandboxImage
+        if sandbox is None:
+            return None
+        frame = sandbox.copy()
+        if scale != 1.0:
+            dsize = (max(1, int(frame.shape[1] * scale)), max(1, int(frame.shape[0] * scale)))
+            frame = cv.resize(frame, dsize)
+        return frame
 
+    def cv_getLatestSandboxImage(self):
+        if self.latestSandboxImage is None and self.latestImageRaw is not None and self.cv_fiducial._homography_M is not None:
+            self.latestSandboxImage = self.cv_fiducial.cv_fiducial_flattenSandboxImage(self.latestImageRaw)
         return self.latestSandboxImage
 
     def cv_GetRobotPositions(self):

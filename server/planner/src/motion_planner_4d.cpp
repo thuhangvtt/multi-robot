@@ -88,6 +88,23 @@ std::vector<Node *> MotionPlanner4D::get_neighbors(Node *curr_node,
 
     double g = curr_node->g_value + cost;
 
+    if (cost == TURN_COST && curr_node->parent != nullptr) {
+      double prev_dth = std::atan2(
+          std::sin(curr_node->theta - curr_node->parent->theta),
+          std::cos(curr_node->theta - curr_node->parent->theta));
+      if (std::abs(prev_dth) > 1e-3) {
+        double back_dth = std::atan2(
+            std::sin(new_theta - curr_node->parent->theta),
+            std::cos(new_theta - curr_node->parent->theta));
+        if (std::abs(back_dth) < 1e-3) {
+          g += 10.0;
+        }
+      }
+    }
+
+    if (is_pallet_goal && curr_node->parent == nullptr && cost == TURN_COST) {
+      continue;
+    }
     if (is_pallet_goal && cost == TURN_COST && h <= NO_TURN_THRESH) {
       continue;
     } else if (h <= NO_TURN_THRESH && cost == STRAIGHT_COST) {
@@ -202,8 +219,35 @@ int MotionPlanner4D::a_star(bool is_pallet_goal) {
       open_list;
   std::unordered_set<Node *, NodeHasher, ClosedListNodeComparator> closed_list;
 
-  double start_h = std::sqrt(std::pow(goal[0] - start_pos[0], 2) +
-                             std::pow(goal[1] - start_pos[1], 2) +
+  int search_goal_x = (int)goal[0];
+  int search_goal_y = (int)goal[1];
+  double chosen_runway_cm = 0.0;
+  if (is_pallet_goal) {
+    for (int runway_cm : {20, 16, 12, 8, 5}) {
+      int rx = (int)std::lround(goal[0] - runway_cm * std::cos(goal[2]));
+      int ry = (int)std::lround(goal[1] + runway_cm * std::sin(goal[2]));
+      Node probe_start(rx, ry, goal[2], 0.0, 0.0, 0.0, nullptr);
+      bool runway_clear = !this->is_in_collision(&probe_start, true);
+      int entry_margin = (runway_cm >= 12) ? 8 : 4;
+      for (int d = 4; runway_clear && d <= runway_cm + entry_margin; d += 4) {
+        int px = (int)std::lround(goal[0] - d * std::cos(goal[2]));
+        int py = (int)std::lround(goal[1] + d * std::sin(goal[2]));
+        Node probe_pt(px, py, goal[2], 0.0, 0.0, 0.0, nullptr);
+        if (this->is_in_collision(&probe_pt, true)) {
+          runway_clear = false;
+        }
+      }
+      if (runway_clear) {
+        search_goal_x = rx;
+        search_goal_y = ry;
+        chosen_runway_cm = (double)runway_cm;
+        break;
+      }
+    }
+  }
+
+  double start_h = std::sqrt(std::pow(search_goal_x - start_pos[0], 2) +
+                             std::pow(search_goal_y - start_pos[1], 2) +
                              std::pow(goal[2] - start_pos[2], 2));
 
   Node *start_node = new Node((int)start_pos[0], (int)start_pos[1],
@@ -211,7 +255,7 @@ int MotionPlanner4D::a_star(bool is_pallet_goal) {
   allocated_nodes.push_back(start_node);
 
   Node *goal_node =
-      new Node((int)goal[0], (int)goal[1], goal[2], 0.0, 0.0, 0.0, nullptr);
+      new Node(search_goal_x, search_goal_y, goal[2], 0.0, 0.0, 0.0, nullptr);
   allocated_nodes.push_back(goal_node);
 
   std::cout << "[MotionPlanner4D] Diem bat dau: " << start_node->x << ", " << start_node->y << ", "
@@ -226,7 +270,33 @@ int MotionPlanner4D::a_star(bool is_pallet_goal) {
     return -1;
   }
 
-  open_list.push(start_node);
+  Node *search_start = start_node;
+  if (is_pallet_goal) {
+    // Lead-in: drive straight along the real robot heading before A* may turn.
+    double lead_dx = std::cos(start_pos[2]);
+    double lead_dy = -std::sin(start_pos[2]);
+    for (int k = 1; k <= LEAD_IN_LENGTH_CM; k++) {
+      int lx = (int)std::lround(start_pos[0] + lead_dx * k);
+      int ly = (int)std::lround(start_pos[1] + lead_dy * k);
+      if (lx == search_start->x && ly == search_start->y) continue;
+      double lh = std::sqrt(std::pow(search_goal_x - lx, 2) +
+                            std::pow(search_goal_y - ly, 2) +
+                            std::pow(goal[2] - start_pos[2], 2));
+      Node *lead = new Node(lx, ly, start_pos[2],
+                            start_time + k * straight_time_step, 0.0, lh,
+                            search_start);
+      allocated_nodes.push_back(lead);
+      if (this->is_in_collision(lead, is_pallet_goal)) break;
+      search_start = lead;
+    }
+  }
+  open_list.push(search_start);
+  if (search_start != start_node) {
+    Node *fallback_start = new Node((int)start_pos[0], (int)start_pos[1],
+                                    start_pos[2], start_time, 8.0, start_h, nullptr);
+    allocated_nodes.push_back(fallback_start);
+    open_list.push(fallback_start);
+  }
 
   std::chrono::steady_clock::time_point begin =
       std::chrono::steady_clock::now();
@@ -244,14 +314,51 @@ int MotionPlanner4D::a_star(bool is_pallet_goal) {
 
     closed_list.insert(current_node);
 
-    if (std::abs(current_node->x - goal_node->x) <= 1 &&
-        std::abs(current_node->y - goal_node->y) <= 1) {
-      double diff_th = std::abs(current_node->theta - goal_node->theta);
+    if (std::abs(current_node->x - search_goal_x) <= 1 &&
+        std::abs(current_node->y - search_goal_y) <= 1) {
+      double diff_th = std::abs(current_node->theta - goal[2]);
       while (diff_th > 2 * M_PI) diff_th -= 2 * M_PI;
       if (diff_th > M_PI) diff_th = 2 * M_PI - diff_th;
 
       if (!is_pallet_goal || diff_th <= GOAL_THETA_TOLERANCE) {
-        goal_node = current_node;
+        if (is_pallet_goal) {
+          current_node->theta = goal[2];
+          Node *runway_prev = current_node;
+          int final_x = (int)std::lround(goal[0]);
+          int final_y = (int)std::lround(goal[1]);
+          if (final_x != runway_prev->x || final_y != runway_prev->y) {
+            int steps = std::max(1, (int)std::lround(chosen_runway_cm / 5.0));
+            double dt_step =
+                (std::max(chosen_runway_cm, 1.0) / steps) * straight_time_step * PALLET_RUNWAY_SLOWDOWN_FACTOR;
+            int sx = runway_prev->x;
+            int sy = runway_prev->y;
+            for (int s = 1; s <= steps; s++) {
+              double frac = (double)s / (double)steps;
+              int nx = (int)std::lround(sx + frac * (final_x - sx));
+              int ny = (int)std::lround(sy + frac * (final_y - sy));
+              if (s < steps && (nx == runway_prev->x && ny == runway_prev->y)) {
+                continue;
+              }
+              if (s < steps && (nx == final_x && ny == final_y)) {
+                continue;
+              }
+              Node *rnode = new Node(nx, ny, goal[2],
+                                     runway_prev->time + dt_step,
+                                     runway_prev->g_value, 0.0, runway_prev);
+              allocated_nodes.push_back(rnode);
+              runway_prev = rnode;
+            }
+            goal_node = runway_prev;
+          } else {
+            Node *dock_node = new Node(final_x, final_y, goal[2],
+                                       runway_prev->time,
+                                       runway_prev->g_value, 0.0, runway_prev);
+            allocated_nodes.push_back(dock_node);
+            goal_node = dock_node;
+          }
+        } else {
+          goal_node = current_node;
+        }
         break;
       }
     }
@@ -297,6 +404,15 @@ search_done:
   }
 
   std::reverse(sub_path.begin(), sub_path.end());
+
+  if (is_pallet_goal && sub_path.size() >= 3) {
+    sub_path[sub_path.size() - 3][2] = goal[2];
+    sub_path[sub_path.size() - 2][2] = goal[2];
+    sub_path.back()[2] = goal[2];
+  } else if (is_pallet_goal && sub_path.size() >= 2) {
+    sub_path[sub_path.size() - 2][2] = goal[2];
+    sub_path.back()[2] = goal[2];
+  }
 
   sub_path.back()[4] = is_pallet_goal ? 1.0 : 2.0;
 

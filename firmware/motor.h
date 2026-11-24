@@ -7,6 +7,8 @@ void motorInit();
 
 void motorSetSpeeds(int leftSpeed, int rightSpeed);
 
+void motorSetVelocity(float linearMmPerSec, float angularDegPerSec);
+
 void motorSetRawPwm(int leftPwm, int rightPwm);
 void motorSetStabilizer(bool enabled);
 
@@ -17,6 +19,10 @@ void motorTask();
 int motorGetLeftSpeed();
 
 int motorGetRightSpeed();
+
+bool motorIsMoving();
+
+bool motorIsVelocityMode();
 
 bool drv8833IsFault();
 

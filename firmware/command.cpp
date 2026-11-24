@@ -15,6 +15,7 @@ void printHelp() {
   Serial.println("--- Robot Serial CLI ---");
   Serial.println("M <left> <right>       Chay 2 dong co DC banh xe (vi du: M "
                  "110 110 hoac M 150 150)");
+  Serial.println("V <v_mm_s> <w_deg_s>   Chay closed-loop van toc + IMU");
   Serial.println("LIFT                   Nang / Gap pallet (ServoA & ServoB)");
   Serial.println("LOWER                  Ha / Nha pallet (ServoA & ServoB)");
   Serial.println("SERVO <a> <b>          Dat goc servo tuy chinh (0..180)");
@@ -29,9 +30,13 @@ void printHelp() {
 
 void handleLine(char *input) {
   int left = 0, right = 0, angleA = 0, angleB = 0;
+  float linV = 0.0f, angW = 0.0f;
   if (sscanf(input, "M %d %d", &left, &right) == 2) {
     robotApplyCommand(left, right, 0);
     Serial.println("OK M");
+  } else if (sscanf(input, "V %f %f", &linV, &angW) == 2) {
+    robotApplyVelocity(linV, angW, 0);
+    Serial.println("OK V");
   } else if (strcmp(input, "LIFT") == 0) {
     servoLiftPallet();
     Serial.println("OK LIFT (Pallet raised)");

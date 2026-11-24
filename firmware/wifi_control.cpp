@@ -33,22 +33,49 @@ bool readCommandInt(const char* key, int& value) {
 void handleRoot() { server.send(200, "text/plain", "PARROT Robot OK"); }
 
 void handleCommandPost() {
-  int left,right,action=0,angleA=0,angleB=0,stabilizer=0;
-  bool angles=server.hasArg("servo_a") || server.hasArg("servo_b");
-  if (!readCommandInt("l",left) || !readCommandInt("r",right) ||
-      left<50 || left>130 || right<50 || right>130 ||
-      (server.hasArg("action") && (!readCommandInt("action",action) || action<0 || action>2)) ||
-      (angles && (!readCommandInt("servo_a",angleA) || !readCommandInt("servo_b",angleB) ||
-                  angleA<0 || angleA>180 || angleB<0 || angleB>180)) ||
-      (server.hasArg("stabilizer") && (!readCommandInt("stabilizer",stabilizer) || stabilizer<0 || stabilizer>1))) {
-    server.send(400,"text/plain","Expected l/r 50..130, action 0..2, optional servo angles 0..180"); return;
+  int action = 0, angleA = 0, angleB = 0, stabilizer = 0;
+  const bool angles = server.hasArg("servo_a") || server.hasArg("servo_b");
+  const bool commonOk =
+      (!server.hasArg("action") || (readCommandInt("action", action) && action >= 0 && action <= 2)) &&
+      (!angles || (readCommandInt("servo_a", angleA) && readCommandInt("servo_b", angleB) &&
+                   angleA >= 0 && angleA <= 180 && angleB >= 0 && angleB <= 180)) &&
+      (!server.hasArg("stabilizer") || (readCommandInt("stabilizer", stabilizer) && stabilizer >= 0 && stabilizer <= 1));
+  if (!commonOk) {
+    server.send(400, "text/plain", "Invalid action/servo/stabilizer argument");
+    return;
   }
-  if (drv8833IsFault()) { motorStop(); server.send(503,"text/plain","Motor driver fault"); return; }
-  robotApplyCommand(left,right,action);
-  if (angles) servoSetAngles(angleA,angleB);
-  if (server.arg("zero_yaw")=="1") imuResetYaw();
-  if (server.hasArg("stabilizer")) motorSetStabilizer(stabilizer==1);
-  server.send(200,"text/plain","OK");
+
+  if (server.hasArg("v") || server.hasArg("w")) {
+    int linV = 0, angW = 0;
+    if ((server.hasArg("v") && !readCommandInt("v", linV)) ||
+        (server.hasArg("w") && !readCommandInt("w", angW)) ||
+        linV < -300 || linV > 300 || angW < -240 || angW > 240) {
+      server.send(400, "text/plain", "Expected v in -300..300 and w in -240..240");
+      return;
+    }
+    if (drv8833IsFault()) { motorStop(); server.send(503, "text/plain", "Motor driver fault"); return; }
+    if (server.arg("zero_yaw") == "1") imuResetYaw();
+    if (server.hasArg("stabilizer")) motorSetStabilizer(stabilizer == 1);
+    robotApplyVelocity((float)linV, (float)angW, action);
+    if (angles) servoSetAngles(angleA, angleB);
+    String reply = "{\"ok\":1,\"yaw\":" + String(imuYawDegrees(), 2) +
+                   ",\"gz\":" + String(imuGyroZDegreesPerSecond(), 1) + "}";
+    server.send(200, "application/json", reply);
+    return;
+  }
+
+  int left = 0, right = 0;
+  if (!readCommandInt("l", left) || !readCommandInt("r", right) ||
+      left < 50 || left > 130 || right < 50 || right > 130) {
+    server.send(400, "text/plain", "Expected l/r 50..130 or v/w velocity");
+    return;
+  }
+  if (drv8833IsFault()) { motorStop(); server.send(503, "text/plain", "Motor driver fault"); return; }
+  if (server.arg("zero_yaw") == "1") imuResetYaw();
+  if (server.hasArg("stabilizer")) motorSetStabilizer(stabilizer == 1);
+  robotApplyCommand(left, right, action);
+  if (angles) servoSetAngles(angleA, angleB);
+  server.send(200, "text/plain", "OK");
 }
 
 void handleParrotCommand() {
@@ -79,7 +106,10 @@ void sendJsonStatus() {
   body += "\"angleA\":" + String(servoGetAngleA()) + ",";
   body += "\"angleB\":" + String(servoGetAngleB()) + ",";
   body += "\"fault\":" + String(drv8833IsFault() ? 1 : 0) + ",";
+  body += "\"imuReady\":" + String(imuIsReady() ? 1 : 0) + ",";
   body += "\"yaw\":" + String(imuYawDegrees(), 2) + ",";
+  body += "\"gz\":" + String(imuGyroZDegreesPerSecond(), 2) + ",";
+  body += "\"mode\":\"" + String(motorIsVelocityMode() ? "vel" : "pwm") + "\",";
   body += "\"timedOut\":" + String(robotIsTimedOut() ? "true" : "false");
   body += "}";
   server.send(200, "application/json", body);
@@ -105,33 +135,46 @@ void wifiControlInit() {
     Serial.println(WiFi.softAPIP());
   } else {
     WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
     WiFi.setHostname(hostname);
 
-    if (USE_STATIC_IP) {
-      if (!WiFi.config(STATIC_IP, GATEWAY_IP, SUBNET_MASK, DNS_IP)) {
-        Serial.println("[Wi-Fi] Cảnh báo: Cấu hình Static IP thất bại, chuyển về DHCP");
+    auto connectWithTimeout = [](const char *ssid, const char *pass, uint32_t timeoutMs) -> bool {
+      WiFi.begin(ssid, pass);
+      Serial.print("[Wi-Fi] Đang kết nối tới '");
+      Serial.print(ssid);
+      Serial.print("'");
+      uint32_t deadline = millis() + timeoutMs;
+      while (WiFi.status() != WL_CONNECTED && millis() < deadline) {
+        delay(300);
+        Serial.print(".");
+        digitalWrite(LED_RED_PIN, !digitalRead(LED_RED_PIN));
       }
-    }
+      Serial.println();
+      return WiFi.status() == WL_CONNECTED;
+    };
 
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.print("[Wi-Fi] Đang kết nối tới '");
-    Serial.print(WIFI_SSID);
-    Serial.print("'");
+    bool connected = connectWithTimeout(WIFI_SSID, WIFI_PASSWORD, 12000);
 
-    uint32_t deadline = millis() + 10000;
-    while (WiFi.status() != WL_CONNECTED && millis() < deadline) {
-      delay(300);
-      Serial.print(".");
-      digitalWrite(LED_RED_PIN, !digitalRead(LED_RED_PIN));
-    }
-    Serial.println();
-
-    if (WiFi.status() != WL_CONNECTED) {
+    if (!connected) {
       Serial.println("[Wi-Fi] THẤT BẠI: Quá thời gian kết nối!");
       robotSetLedRed(true);
       return;
     }
 
+    if (USE_STATIC_IP) {
+      IPAddress gw = WiFi.gatewayIP();
+      IPAddress sub = WiFi.subnetMask();
+      if (gw[0] != 0) {
+        IPAddress desiredIp(gw[0], gw[1], gw[2], 100 + ROBOT_ID);
+        if (WiFi.localIP() != desiredIp) {
+          if (!WiFi.config(desiredIp, gw, sub, gw)) {
+            Serial.println("[Wi-Fi] Cảnh báo: Cấu hình Static IP thất bại, giữ DHCP");
+          }
+        }
+      }
+    }
+
+    WiFi.setSleep(false);
     robotSetLedRed(false);
     robotSetLedBlue(true);
 
@@ -165,6 +208,7 @@ void wifiControlTask() {
       robotSetLedRed(true);
       robotSetLedBlue(false);
       WiFi.reconnect();
+      WiFi.setSleep(false);
     } else {
       robotSetLedRed(robotIsTimedOut());
     }

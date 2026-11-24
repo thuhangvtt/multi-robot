@@ -33,6 +33,7 @@ class CVVisualizer:
         self._trail_color_index = 0
         self._planned_paths = []
         self._planned_fid_ids = []
+        self._cached_paths = []
         self._wheel_speeds = {}
 
     def set_wheel_speeds(self, speeds):
@@ -42,20 +43,45 @@ class CVVisualizer:
     def set_paths(self, paths, fid_ids):
         self._planned_paths = paths if paths else []
         self._planned_fid_ids = fid_ids if fid_ids else []
+        self._cached_paths = []
+
+        try:
+            from controller_main import trajectory_reference
+        except ImportError:
+            trajectory_reference = None
+
+        for i, path in enumerate(self._planned_paths):
+            if not path or len(path) < 2:
+                continue
+            color = PATH_COLORS[i % len(PATH_COLORS)]
+            fid = self._planned_fid_ids[i] if i < len(self._planned_fid_ids) else i
+            if trajectory_reference is not None:
+                samples = []
+                for segment in range(len(path) - 1):
+                    for u in np.linspace(0.0, 1.0, 12, endpoint=False):
+                        t = path[segment][3] + u * (path[segment + 1][3] - path[segment][3])
+                        ref = trajectory_reference(path, t, segment, segment + 1)[1]
+                        samples.append((float(ref[0]), float(ref[1])))
+                samples.append((float(path[-1][0]), float(path[-1][1])))
+            else:
+                samples = [(float(wp[0]), float(wp[1])) for wp in path]
+            self._cached_paths.append((fid, color, samples, path))
 
     def visualize(self, cv_obj, window_name="PARROT Visualizer"):
 
         try:
-            sandbox_image = cv_obj.cv_getLatestSandboxImage()
-            if sandbox_image is None:
-                return
-
-            frame = sandbox_image.copy()
             scale = constants.CV_VIZ_SCALE
-
-            if scale != 1.0:
-                dsize = (int(frame.shape[1] * scale), int(frame.shape[0] * scale))
-                frame = cv.resize(frame, dsize)
+            frame = None
+            if hasattr(cv_obj, 'cv_getDisplayImage'):
+                frame = cv_obj.cv_getDisplayImage(scale)
+            if frame is None:
+                sandbox_image = cv_obj.cv_getLatestSandboxImage()
+                if sandbox_image is None:
+                    return
+                frame = sandbox_image.copy()
+                if scale != 1.0:
+                    dsize = (int(frame.shape[1] * scale), int(frame.shape[0] * scale))
+                    frame = cv.resize(frame, dsize)
 
             self._draw_corners(frame, cv_obj, scale)
             self._draw_planned_paths(frame, scale)
@@ -74,34 +100,16 @@ class CVVisualizer:
 
     def _draw_planned_paths(self, frame, scale):
         try:
-            for i, path in enumerate(self._planned_paths):
-                if not path or len(path) < 2:
-                    continue
+            buffer_x = constants.CV_SANDBOX_WIDTH * constants.CV_SANDBOX_IMAGE_BUFFER_PERCENT / 2
+            buffer_y = constants.CV_SANDBOX_HEIGHT * constants.CV_SANDBOX_IMAGE_BUFFER_PERCENT / 2
 
-                color = PATH_COLORS[i % len(PATH_COLORS)]
-                fid = self._planned_fid_ids[i] if i < len(self._planned_fid_ids) else i
-
-                buffer_x = constants.CV_SANDBOX_WIDTH * constants.CV_SANDBOX_IMAGE_BUFFER_PERCENT / 2
-                buffer_y = constants.CV_SANDBOX_HEIGHT * constants.CV_SANDBOX_IMAGE_BUFFER_PERCENT / 2
-                from controller_main import trajectory_reference
-
-                pts = []
-                samples = []
-                for segment in range(len(path) - 1):
-                    for u in np.linspace(0.0, 1.0, 12, endpoint=False):
-                        t = path[segment][3] + u * (path[segment+1][3] - path[segment][3])
-                        samples.append(trajectory_reference(path, t, segment, segment+1)[1])
-                samples.append(path[-1])
-                for wp in samples:
-                    px = int((wp[0] + buffer_x) * scale)
-                    py = int((wp[1] + buffer_y) * scale)
-                    pts.append([px, py])
-
+            for fid, color, samples, path in self._cached_paths:
+                pts = [
+                    [int((sx + buffer_x) * scale), int((sy + buffer_y) * scale)]
+                    for sx, sy in samples
+                ]
                 pts_np = np.array(pts, dtype=np.int32).reshape((-1, 1, 2))
-
-                overlay = frame.copy()
-                cv.polylines(overlay, [pts_np], isClosed=False, color=color, thickness=2, lineType=cv.LINE_AA)
-                cv.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+                cv.polylines(frame, [pts_np], isClosed=False, color=color, thickness=2, lineType=cv.LINE_AA)
 
                 for wp in path:
                     wx = int((wp[0] + buffer_x) * scale)
@@ -203,10 +211,10 @@ class CVVisualizer:
 
                 v_left, v_right = self._wheel_speeds.get(fid, (0.0, 0.0))
                 if abs(v_left) > 1e-3 or abs(v_right) > 1e-3:
-                    magnitude = (abs(v_right) + abs(v_left)) * 15 * scale * scale
+                    magnitude = 0.45 * (abs(v_right) + abs(v_left)) * scale
                     steer_angle = ((v_right - v_left) / max(constants.CONTROLS_CALIBRATED_SPEED_MM_S, 1.0)) * (np.pi / 2.0)
                     cmd_angle = orientation + steer_angle
-                    white_len = max(magnitude, 25 * scale)
+                    white_len = min(95 * scale, max(magnitude, 25 * scale))
                     white_end_x = int(cx_s + white_len * np.cos(cmd_angle))
                     white_end_y = int(cy_s - white_len * np.sin(cmd_angle))
                     cv.arrowedLine(frame, (cx_s, cy_s), (white_end_x, white_end_y),
